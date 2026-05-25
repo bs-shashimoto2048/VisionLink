@@ -14,20 +14,10 @@ import {
   pauseInspection,
   resumeInspection,
   startInspection,
-  updateRow,
 } from "./api";
 import { useCamera, useFrameSampler } from "./camera";
-import { CheckStatus, SessionStatus, type CheckStatus as CheckStatusType } from "./types";
-import type { CheckRow, CheckTableResponse, InspectionRowState, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
-
-const CHECK_STATUS_OPTIONS: CheckStatusType[] = [
-  CheckStatus.OK,
-  CheckStatus.NG,
-  CheckStatus.PENDING,
-  CheckStatus.OCR_FAILED,
-  CheckStatus.MISMATCH,
-  CheckStatus.MANUAL_FIXED,
-];
+import { CheckStatus, SessionStatus } from "./types";
+import type { CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
 
 const OVERLAY_MODES = {
   series_conf: "表示: シリーズ+確信度",
@@ -41,10 +31,8 @@ const TEXT = {
   headline: "検査",
   description: "カメラ起動後、検査開始で推論・描画が有効になります。",
   loginTitle: "ログイン",
-  manualTitle: "手修正",
   checkComplete: "完了",
   workerConfirmed: "作業者確認",
-  sessionNotStarted: "検査セッションが開始されていません。",
 };
 
 const DEFAULT_INTAKE = { qrText: "DEMO-0001", orderNo: "", serialNo: "", terminalName: "" };
@@ -69,9 +57,6 @@ function App() {
   const [lastFrameAnalysis, setLastFrameAnalysis] = useState<InspectionSessionResponse | null>(null);
   const [intake, setIntake] = useState(DEFAULT_INTAKE);
   const [lookupPreview, setLookupPreview] = useState<InternalDataLookupResponse | null>(null);
-  const [selectedLineNo, setSelectedLineNo] = useState<number | null>(null);
-  const [manualStatus, setManualStatus] = useState<CheckStatusType>(CheckStatus.OK);
-  const [manualNote, setManualNote] = useState("");
   const [workerConfirmed, setWorkerConfirmed] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -108,12 +93,6 @@ function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [operator]);
-
-  useEffect(() => {
-    if (inspection) {
-      setSelectedLineNo((current) => current ?? inspection.rows[0]?.no ?? null);
-    }
-  }, [inspection]);
 
   useEffect(() => {
     setCheckDataLoading("製番を読み込み中...");
@@ -192,10 +171,6 @@ function App() {
 
   const statusLabel = inspection?.status ?? (operator ? "待機中" : "未ログイン");
   const isInspecting = inspection?.status === SessionStatus.IN_PROGRESS;
-  const selectedRow = useMemo(
-    () => inspection?.rows.find((row) => row.no === selectedLineNo) ?? null,
-    [inspection, selectedLineNo]
-  );
   const overlayOcrResults = useMemo(() => {
     const latest = lastFrameAnalysis?.ocr_results ?? [];
     return latest.length > 0 ? latest : (inspection?.ocr_results ?? []);
@@ -251,7 +226,6 @@ function App() {
     });
     setInspection(response);
     setLastFrameAnalysis(null);
-    setSelectedLineNo(response.rows[0]?.no ?? null);
     setWorkerConfirmed(false);
     window.localStorage.setItem("visionlink-session", response.session_id);
     setBanner(`セッション開始: ${response.session_id}`);
@@ -296,20 +270,6 @@ function App() {
     }
   }
 
-  async function handleManualSave() {
-    if (!operator || !inspection || !selectedRow) return;
-    const response = await updateRow({
-      sessionId: inspection.session_id,
-      lineNo: selectedRow.no,
-      operatorId: operator.operator_id,
-      finalStatus: manualStatus,
-      note: manualNote.trim() || undefined,
-    });
-    setInspection(response);
-    setManualNote("");
-    setBanner("手修正を保存しました");
-  }
-
   async function handleComplete() {
     if (!operator || !inspection) return;
     if (!workerConfirmed) {
@@ -332,7 +292,6 @@ function App() {
     setInspection(null);
     setLastFrameAnalysis(null);
     setLookupPreview(null);
-    setSelectedLineNo(null);
     setWorkerConfirmed(false);
     stopCamera();
     window.localStorage.removeItem("visionlink-operator");
@@ -400,7 +359,7 @@ function App() {
                   {inspection ? `${inspection.performance.yolo_ms}/${inspection.performance.ocr_ms}ms` : "N/A"}
                 </div>
 
-                <div className="camera-inline-controls">
+                <div className="camera-control-strip">
                   <label>
                     YOLO閾値
                     <input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} />
@@ -417,9 +376,6 @@ function App() {
                     識別FPS
                     <input type="number" min={1} max={5} step={1} value={analysisFps} onChange={(event) => setAnalysisFps(Number(event.target.value))} />
                   </label>
-                </div>
-
-                <div className="camera-action-row">
                   <button onClick={cameraState.running ? stopCamera : startCamera}>{cameraState.running ? "カメラ停止" : "カメラ開始"}</button>
                   <button className={isInspecting ? "danger" : "primary"} onClick={() => void (isInspecting ? handleStopInspection() : handleStartInspection())}>
                     {isInspecting ? "検査停止" : "検査開始"}
@@ -521,31 +477,6 @@ function App() {
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
             {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
             <CheckDataTable rows={checkTable?.rows ?? []} />
-
-            <InspectionTable rows={inspection?.rows ?? []} selectedLineNo={selectedLineNo} onSelectLine={setSelectedLineNo} />
-
-            <div className="manual-panel">
-              <h3>{TEXT.manualTitle}</h3>
-              <div className="manual-controls">
-                <label>
-                  最終
-                  <select value={manualStatus} onChange={(event) => setManualStatus(event.target.value as CheckStatusType)}>
-                    {CHECK_STATUS_OPTIONS.map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grow">
-                  備考
-                  <input value={manualNote} onChange={(event) => setManualNote(event.target.value)} />
-                </label>
-                <button className="primary" onClick={() => void handleManualSave()} disabled={!inspection || !selectedRow}>
-                  保存
-                </button>
-              </div>
-            </div>
 
             <div className="button-row wrap">
               <label className="checkbox">
@@ -790,50 +721,6 @@ function CheckDataTable({ rows }: { rows: CheckRow[] }) {
             <tr>
               <td colSpan={6} className="empty-state">
                 チェックデータがありません
-              </td>
-            </tr>
-          ) : null}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function InspectionTable({
-  rows,
-  selectedLineNo,
-  onSelectLine,
-}: {
-  rows: InspectionRowState[];
-  selectedLineNo: number | null;
-  onSelectLine: (lineNo: number) => void;
-}) {
-  return (
-    <div className="table-wrap">
-      <table className="inspection-table">
-        <thead>
-          <tr>
-            <th>No</th>
-            <th>Line</th>
-            <th>Left</th>
-            <th>Right</th>
-            <th>Check</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.no} className={selectedLineNo === row.no ? "selected" : ""} onClick={() => onSelectLine(row.no)}>
-              <td>{row.no}</td>
-              <td>{row.line_no}</td>
-              <td>{row.left_value}</td>
-              <td>{row.right_value}</td>
-              <td>{row.check_status}</td>
-            </tr>
-          ))}
-          {!rows.length ? (
-            <tr>
-              <td colSpan={5} className="empty-state">
-                {TEXT.sessionNotStarted}
               </td>
             </tr>
           ) : null}
