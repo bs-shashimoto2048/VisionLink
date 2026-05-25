@@ -334,13 +334,6 @@ function App() {
             <div className="card-header">
               <h2>カメラ</h2>
               <div className="button-row">
-                <select value={overlayMode} onChange={(event) => setOverlayMode(event.target.value as keyof typeof OVERLAY_MODES)}>
-                  {Object.entries(OVERLAY_MODES).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
                 <button onClick={() => setSettingsOpen((v) => !v)}>{settingsOpen ? "設定を閉じる" : "設定"}</button>
               </div>
             </div>
@@ -353,6 +346,17 @@ function App() {
                   <div className="video-badge">{cameraState.running ? "カメラ起動中" : "カメラ停止中"}</div>
                   <div className="video-badge video-badge-right">検出: {inspection?.detections.length ?? 0}</div>
                 </div>
+
+                <label className="overlay-mode-control">
+                  表示切替
+                  <select value={overlayMode} onChange={(event) => setOverlayMode(event.target.value as keyof typeof OVERLAY_MODES)}>
+                    {Object.entries(OVERLAY_MODES).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
                 <div className="camera-inline-status">
                   S:{inspection?.status ?? "待機"} | N:{isOnline ? "ON" : "OFF"} | I:
