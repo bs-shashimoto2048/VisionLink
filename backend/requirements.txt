@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+python-multipart
+pydantic
+cryptography
+ultralytics
+pillow
+numpy<2
+paddleocr==2.7.3
+paddlepaddle==2.6.2
+setuptools

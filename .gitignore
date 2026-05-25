@@ -1,0 +1,45 @@
+# Python
+.venv/
+backend/.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+frontend/*.timestamp-*.mjs
+
+# Local databases and runtime logs
+backend/data/
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.log
+
+# Local HTTPS certificates
+backend/certs/
+frontend/certs/
+*.pem
+*.key
+*.crt
+
+# Local model artifacts
+model/**/*.pt
+model/**/*.onnx
+model/**/*.pdmodel
+model/**/*.pdiparams
+model/**/*.pdiparams.info
+
+# Local/private inspection data
+check_data/product/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
