@@ -64,6 +64,7 @@ function App() {
   const [overlayMode, setOverlayMode] = useState<keyof typeof OVERLAY_MODES>("series_conf");
   const [yoloThreshold, setYoloThreshold] = useState(0.25);
   const [ocrThreshold, setOcrThreshold] = useState(0.5);
+  const [rotateLeftTubeOcr, setRotateLeftTubeOcr] = useState(false);
   const [displayFps, setDisplayFps] = useState(30);
   const [analysisFps, setAnalysisFps] = useState(2);
   const [serials, setSerials] = useState<string[]>([]);
@@ -156,6 +157,7 @@ function App() {
           frame,
           yoloConfidenceThreshold: yoloThreshold,
           ocrConfidenceThreshold: ocrThreshold,
+          rotateLeftTubeOcr,
         });
         setLastFrameAnalysis(response);
         setInspection(response);
@@ -364,6 +366,14 @@ function App() {
                 </div>
 
                 <div className="camera-control-strip">
+                  <button
+                    className={rotateLeftTubeOcr ? "toggle-active" : ""}
+                    title={rotateLeftTubeOcr ? "左側Tubeの180度回転OCRを無効にする" : "左側Tubeの180度回転OCRを有効にする"}
+                    aria-label={rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
+                    onClick={() => setRotateLeftTubeOcr((value) => !value)}
+                  >
+                    {rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
+                  </button>
                   <label>
                     YOLO閾値
                     <input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} />
@@ -583,20 +593,23 @@ function OverlayCanvas({
         index: number
       ) => {
         const detectionText = box.ocr_text?.trim();
-        if (detectionText) return detectionText;
+        if (detectionText) return { text: detectionText, rotated: false };
 
-        const sameOrderText = getOcrText(ocrResults[index]);
-        if (sameOrderText && Math.abs(detections.length - ocrResults.length) <= 1) return sameOrderText;
+        const sameOrderResult = ocrResults[index];
+        const sameOrderText = getOcrText(sameOrderResult);
+        if (sameOrderText && Math.abs(detections.length - ocrResults.length) <= 1) {
+          return { text: sameOrderText, rotated: Boolean(sameOrderResult?.rotated) };
+        }
 
         const boxCanvas = toCanvasBox(box);
         const overlapped = ocrResults
           .filter((result) => isCenterInside(toCanvasBox(toBoxInput(result.bbox)), boxCanvas))
-          .map(getOcrText)
-          .filter(Boolean);
-        return overlapped.join(" ");
+          .map((result) => ({ text: getOcrText(result), rotated: Boolean(result.rotated) }))
+          .filter((result) => result.text);
+        return { text: overlapped.map((result) => result.text).join(" "), rotated: overlapped.some((result) => result.rotated) };
       };
 
-      const drawBox = (box: { x: number; y: number; width: number; height: number }, label: string) => {
+      const drawBox = (box: { x: number; y: number; width: number; height: number }, label: string, rotated = false) => {
         const { left, top, width, height } = toCanvasBox(box);
         const labelText = label.trim() || "(no text)";
         const labelHeight = 24;
@@ -605,7 +618,7 @@ function OverlayCanvas({
         const labelX = left;
         const labelY = top + 2;
 
-        ctx.strokeStyle = "#fbbf24";
+        ctx.strokeStyle = rotated ? "#a855f7" : "#fbbf24";
         ctx.lineWidth = 3;
         ctx.strokeRect(left, top, width, height);
         ctx.fillStyle = "rgba(0, 0, 0, 0.82)";
@@ -615,9 +628,9 @@ function OverlayCanvas({
         ctx.fillText(labelText, labelX + 8, labelY + labelHeight / 2);
       };
 
-      const drawInferenceBox = (box: { x: number; y: number; width: number; height: number }, label: string) => {
+      const drawInferenceBox = (box: { x: number; y: number; width: number; height: number }, label: string, rotated = false) => {
         const { left, top, width, height } = toCanvasBox(box);
-        ctx.strokeStyle = "#22d3ee";
+        ctx.strokeStyle = rotated ? "#a855f7" : "#22d3ee";
         ctx.lineWidth = 3;
         ctx.strokeRect(left, top, width, height);
 
@@ -639,14 +652,14 @@ function OverlayCanvas({
       if (mode === "inference_result") {
         const boxes = detections.map((box, index) => ({
           box,
-          text: resolveInferenceText(box, index),
+          result: resolveInferenceText(box, index),
         }));
-        boxes.forEach(({ box, text }) => drawInferenceBox(box, text));
+        boxes.forEach(({ box, result }) => drawInferenceBox(box, result.text, result.rotated));
         console.debug("[VisionLink] inference overlay state", {
           yoloCount: detections.length,
           ocrCount: ocrResults.length,
           renderedCount: boxes.length,
-          boxes: boxes.map(({ box, text }) => ({ bbox: [box.x, box.y, box.width, box.height], text })),
+          boxes: boxes.map(({ box, result }) => ({ bbox: [box.x, box.y, box.width, box.height], text: result.text, rotated: result.rotated })),
         });
         return;
       }
@@ -658,7 +671,7 @@ function OverlayCanvas({
             const confidence = Number.isFinite(result.confidence) ? ` ${Math.round(result.confidence * 100)}%` : "";
             const labelText = result.text ?? result.ocr_text ?? result.value ?? result.label ?? "(no text)";
             const source = result.source ? ` [${result.source}]` : " [unknown]";
-            drawBox({ x, y, width, height }, `${labelText || "(no text)"}${confidence}${source}`);
+            drawBox({ x, y, width, height }, `${labelText || "(no text)"}${confidence}${source}`, Boolean(result.rotated));
           });
           return;
         }

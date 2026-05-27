@@ -66,6 +66,8 @@ export interface DetectionBox {
   width: number;
   height: number;
   ocr_text?: string | null;
+  role?: string | null;
+  side?: string | null;
 }
 
 export interface OCRResult {
@@ -76,6 +78,10 @@ export interface OCRResult {
   confidence: number;
   bbox: [number, number, number, number];
   source?: string | null;
+  rotated?: boolean;
+  rotation_deg?: number;
+  side?: string | null;
+  role?: string | null;
 }
 
 export interface PerformanceMetrics {

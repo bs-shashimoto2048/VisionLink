@@ -224,7 +224,13 @@ class YoloAIPipeline:
             signature=signature,
         )
 
-    def ocr_detections(self, frame_bytes: bytes, detections: list[DetectionBox], ocr_confidence_threshold: float = 0.5) -> PerformanceMetrics:
+    def ocr_detections(
+        self,
+        frame_bytes: bytes,
+        detections: list[DetectionBox],
+        ocr_confidence_threshold: float = 0.5,
+        rotate_left_tube_ocr: bool = False,
+    ) -> PerformanceMetrics:
         start = perf_counter()
         if not detections:
             return PerformanceMetrics(yolo_ms=0, ocr_ms=0, total_ms=0)
@@ -239,6 +245,11 @@ class YoloAIPipeline:
             x2 = int(max(x1 + 1, min(width, (det.x + det.width) * width)))
             y2 = int(max(y1 + 1, min(height, (det.y + det.height) * height)))
             crop = image.crop((x1, y1, x2, y2))
+            rotated = rotate_left_tube_ocr and self._is_left_tube_detection(det, width)
+            if rotated:
+                crop = crop.transpose(Image.Transpose.ROTATE_180)
+                det.role = det.role or "tube"
+                det.side = det.side or "left"
             try:
                 result = self._ocr.ocr(__import__("numpy").array(crop), cls=False)
                 text_parts: list[str] = []
@@ -261,6 +272,7 @@ class YoloAIPipeline:
         target_row: InspectionRowTemplate | None,
         frame_index: int,
         ocr_confidence_threshold: float = 0.5,
+        rotate_left_tube_ocr: bool = False,
     ) -> OcrResultsResult:
         logger.debug("ENTER pipeline.ocr_results")
         start = perf_counter()
@@ -269,6 +281,7 @@ class YoloAIPipeline:
                 frame_bytes,
                 detections,
                 ocr_confidence_threshold=ocr_confidence_threshold,
+                rotate_left_tube_ocr=rotate_left_tube_ocr,
             )
             elapsed = int((perf_counter() - start) * 1000)
             if paddle_results:
@@ -300,6 +313,7 @@ class YoloAIPipeline:
         frame_bytes: bytes,
         detections: list[DetectionBox],
         ocr_confidence_threshold: float = 0.5,
+        rotate_left_tube_ocr: bool = False,
     ) -> list[OCRResult]:
         logger.debug("ENTER _ocr_results_with_paddleocr")
         if Image is None:
@@ -325,11 +339,25 @@ class YoloAIPipeline:
             x2 = int(max(x1 + 1, min(image_width, (det.x + det.width) * image_width)))
             y2 = int(max(y1 + 1, min(image_height, (det.y + det.height) * image_height)))
             crop = image.crop((x1, y1, x2, y2))
+            is_left_tube = self._is_left_tube_detection(det, image_width)
+            rotated = rotate_left_tube_ocr and is_left_tube
+            if rotated:
+                crop = crop.transpose(Image.Transpose.ROTATE_180)
+                det.role = det.role or "tube"
+                det.side = det.side or "left"
             try:
                 paddle_output = self._run_paddle_ocr(crop)
             except Exception:
                 logger.exception("PaddleOCR failed")
                 raise
+            logger.info(
+                "PaddleOCR crop rotate_left_tube_ocr=%s bbox=%s pixel_bbox=%s is_left_tube=%s rotated=%s",
+                rotate_left_tube_ocr,
+                [det.x, det.y, det.width, det.height],
+                [x1, y1, x2, y2],
+                is_left_tube,
+                rotated,
+            )
             logger.debug("PaddleOCR raw output bbox=%s output=%s", [det.x, det.y, det.width, det.height], paddle_output)
             for text, score in self._extract_paddle_text_scores(paddle_output):
                 if not text or score < ocr_confidence_threshold:
@@ -340,9 +368,26 @@ class YoloAIPipeline:
                         confidence=score,
                         bbox=[det.x, det.y, det.width, det.height],
                         source="paddleocr",
+                        rotated=rotated,
+                        rotation_deg=180 if rotated else 0,
+                        side="left" if rotated else det.side,
+                        role="tube" if rotated else det.role,
                     )
                 )
         return results
+
+    def _is_left_tube_detection(self, detection: DetectionBox, image_width: int | float) -> bool:
+        label = detection.label.lower()
+        role = (detection.role or "").lower()
+        side = (detection.side or "").lower()
+        if side == "left" or role in {"tube_l", "left_tube", "tube_left"}:
+            return True
+        if any(token in label for token in ("tube_l", "left_tube", "tube_left")):
+            return True
+        if "tube" in label and "right" not in label and "_r" not in label:
+            return detection.x + detection.width / 2 < 0.5
+        # TODO: Prefer explicit YOLO class/side/role metadata and CSV tube_l matching when available.
+        return detection.x + detection.width / 2 < 0.5
 
     def _debug_ocr_crop_targets(self) -> list[DetectionBox]:
         return [

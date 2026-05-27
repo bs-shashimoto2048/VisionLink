@@ -263,6 +263,7 @@ class SessionManager:
         frame_index: int,
         yolo_confidence_threshold: float = 0.25,
         ocr_confidence_threshold: float = 0.5,
+        rotate_left_tube_ocr: bool = False,
     ) -> FrameAnalyzeResponse:
         with self._lock:
             session = self._ensure_session(session_id)
@@ -314,9 +315,10 @@ class SessionManager:
             session.detections = detection.detections
             session.ocr_results = []
             logger.info(
-                "frame-analyze detections session_id=%s frame_index=%s count=%s detections=%s",
+                "frame-analyze detections session_id=%s frame_index=%s rotate_left_tube_ocr=%s count=%s detections=%s",
                 session.session_id,
                 session.frame_index,
+                rotate_left_tube_ocr,
                 len(session.detections),
                 [det.model_dump() for det in session.detections],
             )
@@ -325,6 +327,7 @@ class SessionManager:
                     frame_bytes,
                     session.detections,
                     ocr_confidence_threshold=ocr_confidence_threshold,
+                    rotate_left_tube_ocr=rotate_left_tube_ocr,
                 )
                 session.performance = PerformanceMetrics(
                     yolo_ms=session.performance.yolo_ms,
@@ -338,6 +341,10 @@ class SessionManager:
                         confidence=det.confidence,
                         bbox=[det.x, det.y, det.width, det.height],
                         source="detection_ocr",
+                        rotated=bool(det.side == "left" and det.role == "tube" and rotate_left_tube_ocr),
+                        rotation_deg=180 if det.side == "left" and det.role == "tube" and rotate_left_tube_ocr else 0,
+                        side=det.side,
+                        role=det.role,
                     )
                     for det in session.detections
                     if det.ocr_text and det.ocr_text.strip()
@@ -364,6 +371,7 @@ class SessionManager:
                 row_template,
                 session.frame_index,
                 ocr_confidence_threshold=ocr_confidence_threshold,
+                rotate_left_tube_ocr=rotate_left_tube_ocr,
             )
             if ocr_results_result.ocr_results:
                 session.ocr_results = ocr_results_result.ocr_results
@@ -451,6 +459,10 @@ class SessionManager:
                         "confidence": result.confidence,
                         "bbox": result.bbox,
                         "source": result.source,
+                        "rotated": result.rotated,
+                        "rotation_deg": result.rotation_deg,
+                        "side": result.side,
+                        "role": result.role,
                     }
                     for result in session.ocr_results
                 ],

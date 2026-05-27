@@ -112,6 +112,8 @@ class DetectionBox(BaseModel):
     width: float
     height: float
     ocr_text: str | None = None
+    role: str | None = None
+    side: str | None = None
 
 
 class OCRResult(BaseModel):
@@ -119,6 +121,10 @@ class OCRResult(BaseModel):
     confidence: float
     bbox: list[float]
     source: str | None = None
+    rotated: bool = False
+    rotation_deg: int = 0
+    side: str | None = None
+    role: str | None = None
 
 
 class PerformanceMetrics(BaseModel):

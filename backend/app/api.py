@@ -106,6 +106,7 @@ async def frame_analyze(
     frame_index: int = Form(0),
     yolo_confidence_threshold: float = Form(0.25),
     ocr_confidence_threshold: float = Form(0.5),
+    rotate_left_tube_ocr: bool = Form(False),
     frame: UploadFile = File(...),
 ) -> FrameAnalyzeResponse:
     try:
@@ -117,6 +118,7 @@ async def frame_analyze(
             frame_index=frame_index,
             yolo_confidence_threshold=yolo_confidence_threshold,
             ocr_confidence_threshold=ocr_confidence_threshold,
+            rotate_left_tube_ocr=rotate_left_tube_ocr,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc

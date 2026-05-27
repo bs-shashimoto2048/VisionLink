@@ -298,6 +298,12 @@ button:disabled {
   white-space: nowrap;
 }
 
+.camera-control-strip button.toggle-active {
+  background: linear-gradient(180deg, #7c3aed, #5b21b6);
+  color: #fff;
+  border-color: transparent;
+}
+
 .overlay-mode-control {
   margin-top: 6px;
   display: grid;
