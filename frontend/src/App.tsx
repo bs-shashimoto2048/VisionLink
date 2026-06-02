@@ -17,7 +17,7 @@ import {
 } from "./api";
 import { useCamera, useFrameSampler } from "./camera";
 import { CheckStatus, SessionStatus } from "./types";
-import type { CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
+import type { CheckDataStatus, CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
 
 const OVERLAY_MODES = {
   series_conf: "表示: シリーズ+確信度",
@@ -36,6 +36,104 @@ const TEXT = {
 };
 
 const DEFAULT_INTAKE = { qrText: "DEMO-0001", orderNo: "", serialNo: "", terminalName: "" };
+
+function normalizeCheckText(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, "");
+}
+
+function isLabelLike(value: string) {
+  return /^(label|nmb|number|terminal|terminal_label)$/i.test(normalizeCheckText(value));
+}
+
+function isTubeLike(value: string) {
+  return /^(tube|tube_l|tube_r|left_tube|right_tube)$/i.test(normalizeCheckText(value));
+}
+
+function reconcileCheckRows(args: {
+  rows: CheckRow[];
+  yoloResults: Array<{ label?: string | null; role?: string | null; side?: string | null; x: number; width: number; ocr_text?: string | null }>;
+  ocrResults: OCRResult[];
+  guideX: number;
+}) {
+  const { rows, yoloResults, ocrResults, guideX } = args;
+  const updatedRows = rows.map((row) => ({ ...row }));
+  return updatedRows.map((row, rowIndex) => {
+    if (row.completed || row.all_status === "OK") {
+      console.debug("[VisionLink] check reconcile", {
+        rowIndex,
+        labelText: row.label,
+        matchedRowIndex: rowIndex,
+        tubeSide: { left: null, right: null },
+        tubeText: { left: null, right: null },
+        expected: { tube_l: row.tube_l, tube_r: row.tube_r },
+        matched: { label: row.label_status ?? "OK", tube_l: row.tube_l_status ?? "OK", tube_r: row.tube_r_status ?? "OK" },
+        previousStatus: row.all_status,
+        nextStatus: row.all_status,
+        reason: "row_completed_keep",
+      });
+      return row;
+    }
+    const normalizedLabel = normalizeCheckText(row.label);
+    const labelResult = ocrResults.find((result) => normalizeCheckText(result.text ?? result.ocr_text ?? result.value ?? result.label ?? "") === normalizedLabel);
+    const labelStatus: CheckDataStatus = labelResult ? "OK" : "PENDING";
+    const labelMatchedIndex = labelResult ? ocrResults.indexOf(labelResult) : -1;
+
+    const tubeResults = yoloResults
+      .map((det, index) => ({ det, index }))
+      .filter(({ det }) => isTubeLike(det.label ?? "") || isTubeLike(det.role ?? ""))
+      .map(({ det, index }) => ({
+        det,
+        index,
+        centerX: det.x + det.width / 2,
+        side: (det.side ?? (det.x + det.width / 2 < guideX ? "left" : "right")).toLowerCase(),
+      }));
+
+    const leftTube = tubeResults.find((item) => item.side === "left" || item.centerX < guideX);
+    const rightTube = tubeResults.find((item) => item.side === "right" || item.centerX >= guideX);
+    const leftOcr = leftTube ? leftTube.det.ocr_text?.trim() || ocrResults[leftTube.index]?.text || ocrResults[leftTube.index]?.ocr_text || "" : "";
+    const rightOcr = rightTube ? rightTube.det.ocr_text?.trim() || ocrResults[rightTube.index]?.text || ocrResults[rightTube.index]?.ocr_text || "" : "";
+
+    const tubeLOk = Boolean(leftTube && normalizeCheckText(leftOcr) === normalizeCheckText(row.tube_l));
+    const tubeROk = Boolean(rightTube && normalizeCheckText(rightOcr) === normalizeCheckText(row.tube_r));
+    const tubeLStatus: CheckDataStatus = tubeLOk ? "OK" : "PENDING";
+    const tubeRStatus: CheckDataStatus = tubeROk ? "OK" : "PENDING";
+    const completed = tubeLStatus === "OK" && tubeRStatus === "OK" && labelStatus === "OK";
+    const allStatus: CheckDataStatus = completed ? "OK" : "PENDING";
+    const confirmStatus: CheckDataStatus = completed ? "OK" : allStatus;
+    const previousStatus = row.all_status ?? "PENDING";
+    const matched = {
+      label: labelStatus === "OK",
+      tube_l: tubeLStatus === "OK",
+      tube_r: tubeRStatus === "OK",
+    };
+    const nextStatus = allStatus;
+    const reason = completed ? "matched_set_ok" : !leftTube || !rightTube ? "no_detection_keep" : "mismatch_ignore";
+
+    console.debug("[VisionLink] check reconcile", {
+      rowIndex,
+      labelText: row.label,
+      matchedRowIndex: labelMatchedIndex,
+      tubeSide: { left: leftTube?.side ?? null, right: rightTube?.side ?? null },
+      tubeText: { left: leftOcr, right: rightOcr },
+      expected: { tube_l: row.tube_l, tube_r: row.tube_r },
+      matched,
+      previousStatus,
+      nextStatus,
+      reason,
+    });
+
+    return {
+      ...row,
+      label_status: labelStatus,
+      tube_l_status: tubeLStatus,
+      tube_r_status: tubeRStatus,
+      left_status: tubeLStatus,
+      confirm_status: confirmStatus,
+      all_status: allStatus,
+      completed,
+    };
+  });
+}
 
 function statusTone(status: string) {
   if (status === CheckStatus.OK || status === SessionStatus.IN_PROGRESS) return "tone-ok";
@@ -77,6 +175,7 @@ function App() {
   const [checkDataLoading, setCheckDataLoading] = useState<string | null>(null);
   const [checkDataError, setCheckDataError] = useState<string | null>(null);
   const pendingLookup = useRef(false);
+  const guideX = 0.5;
 
   useEffect(() => {
     const syncOnline = () => setIsOnline(navigator.onLine);
@@ -110,6 +209,9 @@ function App() {
     setSelectedBoard("");
     setSelectedTerminal("");
     setCheckTable(null);
+    setInspection(null);
+    setLastFrameAnalysis(null);
+    setWorkerConfirmed(false);
     if (!selectedSerial) return;
     setCheckDataLoading("盤番号を読み込み中...");
     setCheckDataError(null);
@@ -123,6 +225,9 @@ function App() {
     setTerminals([]);
     setSelectedTerminal("");
     setCheckTable(null);
+    setInspection(null);
+    setLastFrameAnalysis(null);
+    setWorkerConfirmed(false);
     if (!selectedSerial || !selectedBoard) return;
     setCheckDataLoading("端子台を読み込み中...");
     setCheckDataError(null);
@@ -135,6 +240,9 @@ function App() {
   useEffect(() => {
     if (!selectedSerial || !selectedBoard || !selectedTerminal) return;
     setCheckTable(null);
+    setInspection(null);
+    setLastFrameAnalysis(null);
+    setWorkerConfirmed(false);
     setCheckDataLoading("CSVを読み込み中...");
     setCheckDataError(null);
     fetchCheckTable(selectedSerial, selectedBoard, selectedTerminal)
@@ -177,6 +285,16 @@ function App() {
     const latest = lastFrameAnalysis?.ocr_results ?? [];
     return latest.length > 0 ? latest : (inspection?.ocr_results ?? []);
   }, [inspection?.ocr_results, lastFrameAnalysis?.ocr_results]);
+  const reconciledCheckRows = useMemo(() => {
+    if (!checkTable?.rows?.length) return [];
+    return reconcileCheckRows({
+      rows: checkTable.rows,
+      yoloResults: inspection?.detections ?? [],
+      ocrResults: overlayOcrResults,
+      guideX,
+    });
+  }, [checkTable?.rows, inspection?.detections, overlayOcrResults, guideX]);
+  const allRowsCompleted = reconciledCheckRows.length > 0 && reconciledCheckRows.every((row) => row.completed || row.all_status === "OK");
 
   useEffect(() => {
     if (overlayMode !== "ocr_result") return;
@@ -456,7 +574,12 @@ function App() {
               <h2>検査テーブル</h2>
               <div className="button-row">
                 <button onClick={() => void refreshActiveSession()}>再読込</button>
-                <button className="primary" onClick={() => void handleComplete()} disabled={!inspection || inspection.status === SessionStatus.COMPLETED}>
+                <button
+                  className="primary"
+                  onClick={() => void handleComplete()}
+                  disabled={!inspection || inspection.status === SessionStatus.COMPLETED || !allRowsCompleted || !workerConfirmed}
+                  title={!allRowsCompleted ? "すべての行の照合完了後に完了できます" : !workerConfirmed ? "作業者確認が必要です" : undefined}
+                >
                   {TEXT.checkComplete}
                 </button>
               </div>
@@ -491,11 +614,11 @@ function App() {
 
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
             {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
-            <CheckDataTable rows={checkTable?.rows ?? []} />
+            <CheckDataTable rows={reconciledCheckRows} />
 
             <div className="button-row wrap">
               <label className="checkbox">
-                <input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} />
+                <input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!allRowsCompleted} />
                 {TEXT.workerConfirmed}
               </label>
             </div>
@@ -724,13 +847,13 @@ function CheckDataTable({ rows }: { rows: CheckRow[] }) {
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={`${row.tube_l}-${row.label}-${row.tube_r}-${index}`}>
-              <td>{statusMark(row.left_status)}</td>
+            <tr key={`${row.tube_l}-${row.label}-${row.tube_r}-${index}`} className={row.completed ? "check-row-completed" : ""}>
+              <td className={`check-status-mark ${row.tube_l_status === "OK" ? "check-cell-ok" : ""}`}>{statusMark(row.tube_l_status ?? row.left_status)}</td>
               <td>{row.tube_l}</td>
-              <td>{row.label}</td>
-              <td>{row.tube_r}</td>
-              <td>{statusMark(row.confirm_status)}</td>
-              <td>{allStatusLabel(row.all_status)}</td>
+              <td className={`check-status-mark ${row.label_status === "OK" ? "check-cell-ok" : ""}`}>{row.label}</td>
+              <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
+              <td className="check-status-mark">{statusMark(row.confirm_status)}</td>
+              <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>
             </tr>
           ))}
           {!rows.length ? (

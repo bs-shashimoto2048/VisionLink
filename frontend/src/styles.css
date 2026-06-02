@@ -565,6 +565,20 @@ button:disabled {
   font-size: 1.15rem;
 }
 
+.check-cell-ok {
+  color: #16a34a;
+  font-weight: 700;
+}
+
+.check-row-completed {
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.check-status-mark {
+  text-align: center;
+  font-weight: 700;
+}
+
 .empty-state {
   text-align: center;
   padding: 24px 12px;

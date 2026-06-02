@@ -46,9 +46,13 @@ export interface CheckRow {
   tube_l: string;
   label: string;
   tube_r: string;
+  tube_l_status?: CheckDataStatus;
+  label_status?: CheckDataStatus;
+  tube_r_status?: CheckDataStatus;
   left_status?: CheckDataStatus;
   confirm_status?: CheckDataStatus;
   all_status?: CheckDataStatus;
+  completed?: boolean;
 }
 
 export interface CheckTableResponse {
