@@ -344,6 +344,7 @@ function App() {
               <div className="video-panel">
                 <div className="video-stage">
                   <video ref={videoRef} className="camera-video" playsInline muted autoPlay />
+                  <div className="camera-center-guide" aria-hidden="true" />
                   <OverlayCanvas detections={inspection?.detections ?? []} ocrResults={overlayOcrResults} mode={overlayMode} />
                   <div className="video-badge">{cameraState.running ? "カメラ起動中" : "カメラ停止中"}</div>
                   <div className="video-badge video-badge-right">検出: {inspection?.detections.length ?? 0}</div>
@@ -668,10 +669,8 @@ function OverlayCanvas({
         if (ocrResults.length > 0) {
           ocrResults.forEach((result) => {
             const [x, y, width, height] = result.bbox;
-            const confidence = Number.isFinite(result.confidence) ? ` ${Math.round(result.confidence * 100)}%` : "";
             const labelText = result.text ?? result.ocr_text ?? result.value ?? result.label ?? "(no text)";
-            const source = result.source ? ` [${result.source}]` : " [unknown]";
-            drawBox({ x, y, width, height }, `${labelText || "(no text)"}${confidence}${source}`, Boolean(result.rotated));
+            drawBox({ x, y, width, height }, labelText || "(no text)", Boolean(result.rotated));
           });
           return;
         }

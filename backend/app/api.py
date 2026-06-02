@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+import logging
 
 from .schemas import (
     CheckDataBoardsResponse,
@@ -23,6 +24,7 @@ from .services.ai_pipeline import AIModelError
 from .services.session_manager import manager
 
 router = APIRouter(prefix="/api")
+logger = logging.getLogger(__name__)
 
 
 @router.get("/health")
@@ -127,6 +129,7 @@ async def frame_analyze(
     except AIModelError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:  # pragma: no cover - runtime safety
+        logger.exception("frame-analyze failed")
         raise HTTPException(status_code=500, detail=f"frame analysis failed: {exc}") from exc
 
 

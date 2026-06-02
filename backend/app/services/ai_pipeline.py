@@ -7,6 +7,7 @@ import logging
 import os
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 os.environ.setdefault("FLAGS_use_mkldnn", "0")
 os.environ.setdefault("FLAGS_enable_pir_api", "0")
@@ -21,11 +22,39 @@ except Exception:  # pragma: no cover - optional runtime dependency
     Image = None
 
 try:
+    import cv2
+except Exception:  # pragma: no cover - optional runtime dependency
+    cv2 = None
+
+try:
     from ultralytics import YOLO
 except Exception:  # pragma: no cover - optional runtime dependency
     YOLO = None
 
 logger = logging.getLogger(__name__)
+
+
+DEFAULT_OCR_PREPROCESS_CONFIG: dict[str, Any] = {
+    "preprocess": {
+        "ratio_threshold": 1.6,
+        "operations": {
+            "threshold": {"type": "binary", "value": 90},
+            "clahe": {"clip_limit": 2, "tile_grid_size": 2},
+            "sharpen": {"enabled": True, "amount": 1, "sigma": 2},
+            "gamma": {"enabled": False, "value": 1},
+            "morph": {"enabled": False, "method": "close", "ksize": 3, "iterations": 1},
+            "unsharp": {"enabled": False, "amount": 0.8, "radius": 1, "threshold": 0},
+            "bilateral": {"enabled": False, "diameter": 5, "sigma_color": 50, "sigma_space": 50},
+            "local_contrast": {"enabled": False, "clip_limit": 2, "tile_grid_size": 8},
+            "crop_margin": {"enabled": False, "threshold": 245, "margin": 2},
+            "hist_equalize": {"enabled": False},
+            "stroke_boost": {"enabled": True, "method": "close", "ksize": 1, "iterations": 1},
+            "denoise": {"method": "gaussian", "ksize": 1},
+            "deskew": {"enabled": True},
+            "resize": {"single": 64, "wide_height": 64, "keep_ratio": True},
+        },
+    }
+}
 
 
 @dataclass(frozen=True)
@@ -69,6 +98,9 @@ class YoloAIPipeline:
         self._ocr_loaded = False
         self._ocr_error: str | None = None
         self._paddleocr_version: str | None = None
+        self._ocr_preprocess_config = DEFAULT_OCR_PREPROCESS_CONFIG
+        self._ocr_preprocess_enabled = os.environ.get("OCR_PREPROCESS_ENABLED", "false").lower() == "true"
+        self._ocr_debug_log_enabled = os.environ.get("OCR_DEBUG_LOG_ENABLED", "false").lower() == "true"
 
     def _fallback_signature(self, frame_bytes: bytes, frame_index: int) -> str:
         return sha1(frame_bytes + str(frame_index).encode("utf-8")).hexdigest()[:16]
@@ -280,6 +312,7 @@ class YoloAIPipeline:
             paddle_results = self._ocr_results_with_paddleocr(
                 frame_bytes,
                 detections,
+                frame_index,
                 ocr_confidence_threshold=ocr_confidence_threshold,
                 rotate_left_tube_ocr=rotate_left_tube_ocr,
             )
@@ -312,6 +345,7 @@ class YoloAIPipeline:
         self,
         frame_bytes: bytes,
         detections: list[DetectionBox],
+        frame_index: int,
         ocr_confidence_threshold: float = 0.5,
         rotate_left_tube_ocr: bool = False,
     ) -> list[OCRResult]:
@@ -333,7 +367,7 @@ class YoloAIPipeline:
             len(crop_targets),
         )
         results: list[OCRResult] = []
-        for det in crop_targets:
+        for detection_index, det in enumerate(crop_targets):
             x1 = int(max(0, min(image_width - 1, det.x * image_width)))
             y1 = int(max(0, min(image_height - 1, det.y * image_height)))
             x2 = int(max(x1 + 1, min(image_width, (det.x + det.width) * image_width)))
@@ -341,24 +375,75 @@ class YoloAIPipeline:
             crop = image.crop((x1, y1, x2, y2))
             is_left_tube = self._is_left_tube_detection(det, image_width)
             rotated = rotate_left_tube_ocr and is_left_tube
+            crop_shape_before = self._shape_of(crop)
             if rotated:
                 crop = crop.transpose(Image.Transpose.ROTATE_180)
                 det.role = det.role or "tube"
                 det.side = det.side or "left"
+            crop_shape_after_rotate = self._shape_of(crop)
+            crop_array = __import__("numpy").array(crop)
+            preprocessed_crop, applied_ops = (
+                preprocess_ocr_crop(crop_array, self._ocr_preprocess_config)
+                if self._ocr_preprocess_enabled
+                else (crop_array, [])
+            )
+            crop_shape_after_preprocess = self._shape_of(preprocessed_crop)
+            ratio = self._ratio_of(crop_array)
+            if self._ocr_debug_log_enabled:
+                logger.info(
+                    "PaddleOCR preprocess rotate_left_tube_ocr=%s detection_index=%s class_name=%s role=%s side=%s bbox_raw=%s bbox_pixel=%s guide_x=%s center_x=%s image_center_x=%s is_tube=%s is_left_of_guide=%s rotated=%s crop_shape_before=%s crop_shape_after_rotate=%s crop_shape_after_preprocess=%s ratio=%.3f ops=%s",
+                    rotate_left_tube_ocr,
+                    detection_index,
+                    self._class_name(det),
+                    det.role,
+                    det.side,
+                    [det.x, det.y, det.width, det.height],
+                    [x1, y1, x2, y2],
+                    0.5,
+                    self._center_x_of_detection(det, image_width),
+                    image_width * 0.5,
+                    self._is_tube_detection(det),
+                    is_left_tube,
+                    rotated,
+                    crop_shape_before,
+                    crop_shape_after_rotate,
+                    crop_shape_after_preprocess,
+                    ratio,
+                    applied_ops,
+                )
+            self._maybe_save_debug_crop(
+                preprocessed_crop,
+                frame_bytes,
+                det,
+                frame_index=frame_index,
+                detection_index=detection_index,
+                rotated=rotated,
+            )
             try:
-                paddle_output = self._run_paddle_ocr(crop)
+                paddle_output = self._run_paddle_ocr(preprocessed_crop)
             except Exception:
                 logger.exception("PaddleOCR failed")
                 raise
-            logger.info(
-                "PaddleOCR crop rotate_left_tube_ocr=%s bbox=%s pixel_bbox=%s is_left_tube=%s rotated=%s",
-                rotate_left_tube_ocr,
-                [det.x, det.y, det.width, det.height],
-                [x1, y1, x2, y2],
-                is_left_tube,
-                rotated,
-            )
-            logger.debug("PaddleOCR raw output bbox=%s output=%s", [det.x, det.y, det.width, det.height], paddle_output)
+            if self._ocr_debug_log_enabled:
+                logger.info(
+                    "PaddleOCR crop rotate_left_tube_ocr=%s detection_index=%s class_name=%s role=%s side=%s bbox_raw=%s bbox_pixel=%s is_tube=%s is_left_of_guide=%s rotated=%s",
+                    rotate_left_tube_ocr,
+                    detection_index,
+                    self._class_name(det),
+                    det.role,
+                    det.side,
+                    [det.x, det.y, det.width, det.height],
+                    [x1, y1, x2, y2],
+                    self._is_tube_detection(det),
+                    is_left_tube,
+                    rotated,
+                )
+                logger.debug(
+                    "PaddleOCR raw output detection_index=%s bbox=%s output=%s",
+                    detection_index,
+                    [det.x, det.y, det.width, det.height],
+                    paddle_output,
+                )
             for text, score in self._extract_paddle_text_scores(paddle_output):
                 if not text or score < ocr_confidence_threshold:
                     continue
@@ -376,8 +461,60 @@ class YoloAIPipeline:
                 )
         return results
 
+    def _maybe_save_debug_crop(
+        self,
+        crop: object,
+        frame_bytes: bytes,
+        detection: DetectionBox,
+        frame_index: int,
+        detection_index: int,
+        rotated: bool,
+    ) -> None:
+        if os.environ.get("OCR_DEBUG_SAVE_CROPS", "").lower() != "true":
+            return
+        if Image is None:
+            return
+        debug_dir = Path(__file__).resolve().parents[2] / "debug_ocr_crops"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        image = Image.fromarray(crop if hasattr(crop, "shape") else __import__("numpy").array(crop))
+        frame_sig = self._fallback_signature(frame_bytes, frame_index)
+        safe_label = detection.label.replace("/", "_").replace("\\", "_")
+        suffix = "rotated" if rotated else "normal"
+        path = debug_dir / f"frame{frame_index:04d}_det{detection_index:02d}_{frame_sig}_{safe_label}_{suffix}.png"
+        try:
+            image.save(path)
+        except Exception:
+            logger.debug("Failed to save debug crop path=%s", path, exc_info=True)
+
+    def _shape_of(self, image: object) -> list[int]:
+        shape = getattr(image, "shape", None)
+        if not shape:
+            return []
+        return [int(value) for value in shape]
+
+    def _ratio_of(self, image: object) -> float:
+        shape = getattr(image, "shape", None)
+        if not shape or len(shape) < 2:
+            return 0.0
+        height = float(shape[0])
+        width = float(shape[1])
+        return width / height if height else 0.0
+
+    def _class_name(self, detection: DetectionBox) -> str:
+        return detection.label or ""
+
+    def _is_tube_detection(self, detection: DetectionBox) -> bool:
+        label = (detection.label or "").lower()
+        role = (detection.role or "").lower()
+        if role.startswith("tube"):
+            return True
+        return "tube" in label
+
+    def _center_x_of_detection(self, detection: DetectionBox, image_width: int | float) -> float:
+        return (detection.x + detection.width / 2) * float(image_width)
+
     def _is_left_tube_detection(self, detection: DetectionBox, image_width: int | float) -> bool:
-        label = detection.label.lower()
+        label = (detection.label or "").lower()
         role = (detection.role or "").lower()
         side = (detection.side or "").lower()
         if side == "left" or role in {"tube_l", "left_tube", "tube_left"}:
@@ -450,6 +587,136 @@ class YoloAIPipeline:
                 pairs.extend(self._extract_paddle_text_scores(res_data))
                 continue
         return pairs
+
+
+def preprocess_ocr_crop(crop: Any, config: dict[str, Any] | None = None) -> tuple[Any, list[str]]:
+    if cv2 is None:
+        return crop, []
+    numpy = __import__("numpy")
+    cfg = config or DEFAULT_OCR_PREPROCESS_CONFIG
+    ops = cfg.get("preprocess", {}).get("operations", {})
+    ratio_threshold = float(cfg.get("preprocess", {}).get("ratio_threshold", 1.6))
+    applied: list[str] = []
+
+    if crop is None:
+        return crop, applied
+    image = crop.copy()
+    if getattr(image, "size", 0) == 0:
+        return crop, applied
+    if image.ndim == 2:
+        gray = image
+    elif image.ndim == 3 and image.shape[2] in (3, 4):
+        if image.shape[2] == 4:
+            image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    else:
+        return crop, applied
+
+    crop_margin = ops.get("crop_margin", {})
+    if crop_margin.get("enabled"):
+        threshold = int(crop_margin.get("threshold", 245))
+        margin = int(crop_margin.get("margin", 2))
+        mask = gray < threshold
+        points = numpy.argwhere(mask)
+        if points.size > 0:
+            y0, x0 = points.min(axis=0)
+            y1, x1 = points.max(axis=0) + 1
+            y0 = max(0, y0 - margin)
+            x0 = max(0, x0 - margin)
+            y1 = min(gray.shape[0], y1 + margin)
+            x1 = min(gray.shape[1], x1 + margin)
+            image = image[y0:y1, x0:x1]
+            gray = gray[y0:y1, x0:x1]
+            applied.append("crop_margin")
+
+    deskew = ops.get("deskew", {})
+    if deskew.get("enabled") and gray.size:
+        coords = numpy.column_stack(numpy.where(gray < 250))
+        if coords.size > 0:
+            try:
+                angle = cv2.minAreaRect(coords)[-1]
+            except Exception:
+                angle = 0.0
+            if angle < -45:
+                angle = 90 + angle
+            elif angle > 45:
+                angle = angle - 90
+            if abs(angle) >= 0.5:
+                h, w = gray.shape[:2]
+                mat = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1.0)
+                image = cv2.warpAffine(image, mat, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+                gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if image.ndim == 3 else image
+                applied.append("deskew")
+
+    if image.ndim == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        applied.append("grayscale")
+
+    clahe = ops.get("clahe", {})
+    if clahe:
+        grid = max(1, int(clahe.get("tile_grid_size", 2)))
+        clahe_impl = cv2.createCLAHE(clipLimit=float(clahe.get("clip_limit", 2)), tileGridSize=(grid, grid))
+        gray = clahe_impl.apply(gray)
+        applied.append("clahe")
+
+    denoise = ops.get("denoise", {})
+    if denoise.get("method") == "gaussian":
+        ksize = max(1, int(denoise.get("ksize", 1)))
+        if ksize > 1:
+            gray = cv2.GaussianBlur(gray, (ksize | 1, ksize | 1), 0)
+            applied.append("denoise")
+
+    sharpen = ops.get("sharpen", {})
+    if sharpen.get("enabled"):
+        amount = float(sharpen.get("amount", 1))
+        sigma = float(sharpen.get("sigma", 2))
+        blurred = cv2.GaussianBlur(gray, (0, 0), sigma)
+        gray = cv2.addWeighted(gray, 1 + amount, blurred, -amount, 0)
+        applied.append("sharpen")
+
+    stroke = ops.get("stroke_boost", {})
+    if stroke.get("enabled"):
+        ksize = max(1, int(stroke.get("ksize", 1)))
+        if ksize > 1:
+            kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (ksize, ksize))
+            gray = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel, iterations=int(stroke.get("iterations", 1)))
+        applied.append("stroke_boost")
+
+    gamma = ops.get("gamma", {})
+    if gamma.get("enabled"):
+        value = max(0.1, float(gamma.get("value", 1)))
+        inv = 1.0 / value
+        table = numpy.array([((i / 255.0) ** inv) * 255 for i in range(256)]).astype("uint8")
+        gray = cv2.LUT(gray, table)
+        applied.append("gamma")
+
+    threshold = ops.get("threshold", {})
+    if threshold.get("type") == "binary":
+        _, gray = cv2.threshold(gray, int(threshold.get("value", 90)), 255, cv2.THRESH_BINARY)
+        applied.append("threshold")
+
+    morph = ops.get("morph", {})
+    if morph.get("enabled"):
+        method = cv2.MORPH_CLOSE if str(morph.get("method", "close")).lower() == "close" else cv2.MORPH_OPEN
+        ksize = max(1, int(morph.get("ksize", 3)))
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (ksize, ksize))
+        gray = cv2.morphologyEx(gray, method, kernel, iterations=int(morph.get("iterations", 1)))
+        applied.append("morph")
+
+    resize = ops.get("resize", {})
+    target_h = int(resize.get("wide_height", 64) if (gray.shape[1] / max(1, gray.shape[0])) > ratio_threshold else resize.get("single", 64))
+    target_h = max(1, target_h)
+    if resize.get("keep_ratio", True):
+        h, w = gray.shape[:2]
+        target_w = max(1, int(round(w * (target_h / max(1, h)))))
+    else:
+        target_w = max(1, int(resize.get("single", 64)))
+    gray = cv2.resize(gray, (target_w, target_h), interpolation=cv2.INTER_CUBIC)
+    applied.append("resize")
+
+    if gray.ndim == 2:
+        gray = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
+    return gray, applied
 
     def ocr(
         self,

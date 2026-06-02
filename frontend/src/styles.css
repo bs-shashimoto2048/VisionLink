@@ -336,6 +336,18 @@ button:disabled {
   z-index: 1;
 }
 
+.camera-center-guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: rgba(255, 82, 82, 0.42);
+  pointer-events: none;
+  z-index: 2;
+}
+
 .overlay-canvas {
   pointer-events: none;
   z-index: 3;
