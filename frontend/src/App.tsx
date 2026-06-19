@@ -18,6 +18,7 @@ import {
 import { useCamera, useFrameSampler } from "./camera";
 import { CheckStatus, SessionStatus } from "./types";
 import type { CheckDataStatus, CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
+import { reconcileCheckRows } from "./checkReconcile";
 
 const OVERLAY_MODES = {
   series_conf: "表示: シリーズ+確信度",
@@ -36,104 +37,6 @@ const TEXT = {
 };
 
 const DEFAULT_INTAKE = { qrText: "DEMO-0001", orderNo: "", serialNo: "", terminalName: "" };
-
-function normalizeCheckText(value: string) {
-  return value.trim().toUpperCase().replace(/\s+/g, "");
-}
-
-function isLabelLike(value: string) {
-  return /^(label|nmb|number|terminal|terminal_label)$/i.test(normalizeCheckText(value));
-}
-
-function isTubeLike(value: string) {
-  return /^(tube|tube_l|tube_r|left_tube|right_tube)$/i.test(normalizeCheckText(value));
-}
-
-function reconcileCheckRows(args: {
-  rows: CheckRow[];
-  yoloResults: Array<{ label?: string | null; role?: string | null; side?: string | null; x: number; width: number; ocr_text?: string | null }>;
-  ocrResults: OCRResult[];
-  guideX: number;
-}) {
-  const { rows, yoloResults, ocrResults, guideX } = args;
-  const updatedRows = rows.map((row) => ({ ...row }));
-  return updatedRows.map((row, rowIndex) => {
-    if (row.completed || row.all_status === "OK") {
-      console.debug("[VisionLink] check reconcile", {
-        rowIndex,
-        labelText: row.label,
-        matchedRowIndex: rowIndex,
-        tubeSide: { left: null, right: null },
-        tubeText: { left: null, right: null },
-        expected: { tube_l: row.tube_l, tube_r: row.tube_r },
-        matched: { label: row.label_status ?? "OK", tube_l: row.tube_l_status ?? "OK", tube_r: row.tube_r_status ?? "OK" },
-        previousStatus: row.all_status,
-        nextStatus: row.all_status,
-        reason: "row_completed_keep",
-      });
-      return row;
-    }
-    const normalizedLabel = normalizeCheckText(row.label);
-    const labelResult = ocrResults.find((result) => normalizeCheckText(result.text ?? result.ocr_text ?? result.value ?? result.label ?? "") === normalizedLabel);
-    const labelStatus: CheckDataStatus = labelResult ? "OK" : "PENDING";
-    const labelMatchedIndex = labelResult ? ocrResults.indexOf(labelResult) : -1;
-
-    const tubeResults = yoloResults
-      .map((det, index) => ({ det, index }))
-      .filter(({ det }) => isTubeLike(det.label ?? "") || isTubeLike(det.role ?? ""))
-      .map(({ det, index }) => ({
-        det,
-        index,
-        centerX: det.x + det.width / 2,
-        side: (det.side ?? (det.x + det.width / 2 < guideX ? "left" : "right")).toLowerCase(),
-      }));
-
-    const leftTube = tubeResults.find((item) => item.side === "left" || item.centerX < guideX);
-    const rightTube = tubeResults.find((item) => item.side === "right" || item.centerX >= guideX);
-    const leftOcr = leftTube ? leftTube.det.ocr_text?.trim() || ocrResults[leftTube.index]?.text || ocrResults[leftTube.index]?.ocr_text || "" : "";
-    const rightOcr = rightTube ? rightTube.det.ocr_text?.trim() || ocrResults[rightTube.index]?.text || ocrResults[rightTube.index]?.ocr_text || "" : "";
-
-    const tubeLOk = Boolean(leftTube && normalizeCheckText(leftOcr) === normalizeCheckText(row.tube_l));
-    const tubeROk = Boolean(rightTube && normalizeCheckText(rightOcr) === normalizeCheckText(row.tube_r));
-    const tubeLStatus: CheckDataStatus = tubeLOk ? "OK" : "PENDING";
-    const tubeRStatus: CheckDataStatus = tubeROk ? "OK" : "PENDING";
-    const completed = tubeLStatus === "OK" && tubeRStatus === "OK" && labelStatus === "OK";
-    const allStatus: CheckDataStatus = completed ? "OK" : "PENDING";
-    const confirmStatus: CheckDataStatus = completed ? "OK" : allStatus;
-    const previousStatus = row.all_status ?? "PENDING";
-    const matched = {
-      label: labelStatus === "OK",
-      tube_l: tubeLStatus === "OK",
-      tube_r: tubeRStatus === "OK",
-    };
-    const nextStatus = allStatus;
-    const reason = completed ? "matched_set_ok" : !leftTube || !rightTube ? "no_detection_keep" : "mismatch_ignore";
-
-    console.debug("[VisionLink] check reconcile", {
-      rowIndex,
-      labelText: row.label,
-      matchedRowIndex: labelMatchedIndex,
-      tubeSide: { left: leftTube?.side ?? null, right: rightTube?.side ?? null },
-      tubeText: { left: leftOcr, right: rightOcr },
-      expected: { tube_l: row.tube_l, tube_r: row.tube_r },
-      matched,
-      previousStatus,
-      nextStatus,
-      reason,
-    });
-
-    return {
-      ...row,
-      label_status: labelStatus,
-      tube_l_status: tubeLStatus,
-      tube_r_status: tubeRStatus,
-      left_status: tubeLStatus,
-      confirm_status: confirmStatus,
-      all_status: allStatus,
-      completed,
-    };
-  });
-}
 
 function statusTone(status: string) {
   if (status === CheckStatus.OK || status === SessionStatus.IN_PROGRESS) return "tone-ok";
@@ -172,6 +75,7 @@ function App() {
   const [selectedBoard, setSelectedBoard] = useState("");
   const [selectedTerminal, setSelectedTerminal] = useState("");
   const [checkTable, setCheckTable] = useState<CheckTableResponse | null>(null);
+  const [checkRows, setCheckRows] = useState<CheckRow[]>([]);
   const [checkDataLoading, setCheckDataLoading] = useState<string | null>(null);
   const [checkDataError, setCheckDataError] = useState<string | null>(null);
   const pendingLookup = useRef(false);
@@ -209,6 +113,7 @@ function App() {
     setSelectedBoard("");
     setSelectedTerminal("");
     setCheckTable(null);
+    setCheckRows([]);
     setInspection(null);
     setLastFrameAnalysis(null);
     setWorkerConfirmed(false);
@@ -225,6 +130,7 @@ function App() {
     setTerminals([]);
     setSelectedTerminal("");
     setCheckTable(null);
+    setCheckRows([]);
     setInspection(null);
     setLastFrameAnalysis(null);
     setWorkerConfirmed(false);
@@ -246,7 +152,10 @@ function App() {
     setCheckDataLoading("CSVを読み込み中...");
     setCheckDataError(null);
     fetchCheckTable(selectedSerial, selectedBoard, selectedTerminal)
-      .then(setCheckTable)
+      .then((response) => {
+        setCheckTable(response);
+        setCheckRows(response.rows.map((row) => ({ ...row })));
+      })
       .catch((error) => setCheckDataError(error instanceof Error ? error.message : "CSVを読み込めません"))
       .finally(() => setCheckDataLoading(null));
   }, [selectedSerial, selectedBoard, selectedTerminal]);
@@ -267,6 +176,25 @@ function App() {
           ocrConfidenceThreshold: ocrThreshold,
           rotateLeftTubeOcr,
         });
+        console.debug("[VisionLink] frame analyze for reconcile", {
+          frameIndex: response.frame_index,
+          isCheckTableReady,
+          inspectionRunning,
+          checkRowsLength: checkTable?.rows?.length ?? 0,
+          yoloCount: response.detections?.length ?? 0,
+          ocrCount: response.ocr_results?.length ?? 0,
+          ocrResults: response.ocr_results?.map((result) => ({
+            text: result.text,
+            ocr_text: result.ocr_text,
+            value: result.value,
+            label: result.label,
+            bbox: result.bbox,
+            role: result.role,
+            class_name: result.label,
+            source: result.source,
+            rotated: result.rotated,
+          })),
+        });
         setLastFrameAnalysis(response);
         setInspection(response);
       } catch (error) {
@@ -280,21 +208,67 @@ function App() {
   });
 
   const statusLabel = inspection?.status ?? (operator ? "待機中" : "未ログイン");
-  const isInspecting = inspection?.status === SessionStatus.IN_PROGRESS;
+  const inspectionRunning = inspection?.status === SessionStatus.IN_PROGRESS;
+  const isInspectionActive =
+    inspectionRunning ||
+    inspection?.status === SessionStatus.PAUSED ||
+    inspection?.status === SessionStatus.COMPLETED;
   const overlayOcrResults = useMemo(() => {
     const latest = lastFrameAnalysis?.ocr_results ?? [];
     return latest.length > 0 ? latest : (inspection?.ocr_results ?? []);
   }, [inspection?.ocr_results, lastFrameAnalysis?.ocr_results]);
-  const reconciledCheckRows = useMemo(() => {
-    if (!checkTable?.rows?.length) return [];
-    return reconcileCheckRows({
-      rows: checkTable.rows,
-      yoloResults: inspection?.detections ?? [],
-      ocrResults: overlayOcrResults,
-      guideX,
+  const isCheckTableReady = Boolean(selectedSerial) && Boolean(selectedBoard) && Boolean(selectedTerminal) && (checkTable?.rows?.length ?? 0) > 0;
+  const reconcileFrameIndex = lastFrameAnalysis?.frame_index ?? inspection?.frame_index ?? 0;
+  useEffect(() => {
+    console.debug("[VisionLink] reconcile gate", {
+      isCheckTableReady,
+      inspectionRunning,
+      isInspectionActive,
+      checkRowsLength: checkTable?.rows?.length ?? 0,
+      checkRowsStateLength: checkRows.length,
+      yoloCount: lastFrameAnalysis?.detections?.length ?? inspection?.detections?.length ?? 0,
+      ocrCount: lastFrameAnalysis?.ocr_results?.length ?? inspection?.ocr_results?.length ?? 0,
     });
-  }, [checkTable?.rows, inspection?.detections, overlayOcrResults, guideX]);
-  const allRowsCompleted = reconciledCheckRows.length > 0 && reconciledCheckRows.every((row) => row.completed || row.all_status === "OK");
+  }, [checkRows.length, checkTable?.rows?.length, inspectionRunning, isInspectionActive, isCheckTableReady, lastFrameAnalysis?.detections?.length, lastFrameAnalysis?.ocr_results?.length, inspection?.detections?.length, inspection?.ocr_results?.length]);
+  useEffect(() => {
+    setCheckRows((prevRows) => {
+      if (!isCheckTableReady || !isInspectionActive || prevRows.length === 0) {
+        console.debug("[VisionLink] reconcile skipped", {
+          isCheckTableReady,
+          isInspectionActive,
+          prevRowsLength: prevRows.length,
+        });
+        return prevRows;
+      }
+
+      const nextRows = reconcileCheckRows({
+        rows: prevRows,
+        yoloResults: lastFrameAnalysis?.detections ?? inspection?.detections ?? [],
+        ocrResults: overlayOcrResults,
+        guideX,
+        frameIndex: reconcileFrameIndex,
+      });
+
+      console.debug("[VisionLink] reconcile applied", {
+        frameIndex: reconcileFrameIndex,
+        previous: prevRows.map((row) => ({
+          label: row.label,
+          tube_l_status: row.tube_l_status,
+          tube_r_status: row.tube_r_status,
+          completed: row.completed,
+        })),
+        next: nextRows.map((row) => ({
+          label: row.label,
+          tube_l_status: row.tube_l_status,
+          tube_r_status: row.tube_r_status,
+          completed: row.completed,
+        })),
+      });
+
+      return nextRows;
+    });
+  }, [checkRows.length, isCheckTableReady, isInspectionActive, lastFrameAnalysis?.detections, inspection?.detections, overlayOcrResults, guideX, reconcileFrameIndex]);
+  const allRowsCompleted = checkRows.length > 0 && checkRows.every((row) => row.completed || row.all_status === "OK");
 
   useEffect(() => {
     if (overlayMode !== "ocr_result") return;
@@ -509,9 +483,20 @@ function App() {
                     識別FPS
                     <input type="number" min={1} max={5} step={1} value={analysisFps} onChange={(event) => setAnalysisFps(Number(event.target.value))} />
                   </label>
-                  <button onClick={cameraState.running ? stopCamera : startCamera}>{cameraState.running ? "カメラ停止" : "カメラ開始"}</button>
-                  <button className={isInspecting ? "danger" : "primary"} onClick={() => void (isInspecting ? handleStopInspection() : handleStartInspection())}>
-                    {isInspecting ? "検査停止" : "検査開始"}
+                  <button
+                    onClick={cameraState.running ? stopCamera : startCamera}
+                    disabled={!isCheckTableReady && !cameraState.running}
+                    title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
+                  >
+                    {cameraState.running ? "カメラ停止" : "カメラ開始"}
+                  </button>
+                  <button
+                    className={inspectionRunning ? "danger" : "primary"}
+                    onClick={() => void (inspectionRunning ? handleStopInspection() : handleStartInspection())}
+                    disabled={!isCheckTableReady && !inspectionRunning}
+                    title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
+                  >
+                    {inspectionRunning ? "検査停止" : "検査開始"}
                   </button>
                 </div>
               </div>
@@ -577,7 +562,7 @@ function App() {
                 <button
                   className="primary"
                   onClick={() => void handleComplete()}
-                  disabled={!inspection || inspection.status === SessionStatus.COMPLETED || !allRowsCompleted || !workerConfirmed}
+                  disabled={!isCheckTableReady || !inspectionRunning || !allRowsCompleted || !workerConfirmed}
                   title={!allRowsCompleted ? "すべての行の照合完了後に完了できます" : !workerConfirmed ? "作業者確認が必要です" : undefined}
                 >
                   {TEXT.checkComplete}
@@ -614,11 +599,11 @@ function App() {
 
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
             {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
-            <CheckDataTable rows={reconciledCheckRows} />
+            <CheckDataTable rows={checkRows} />
 
             <div className="button-row wrap">
               <label className="checkbox">
-                <input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!allRowsCompleted} />
+                <input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!isCheckTableReady || !allRowsCompleted} />
                 {TEXT.workerConfirmed}
               </label>
             </div>
@@ -847,10 +832,10 @@ function CheckDataTable({ rows }: { rows: CheckRow[] }) {
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={`${row.tube_l}-${row.label}-${row.tube_r}-${index}`} className={row.completed ? "check-row-completed" : ""}>
+            <tr key={`${row.tube_l}-${row.label}-${row.tube_r}-${index}`} className={row.completed || row.all_status === "OK" ? "check-row-completed" : ""}>
               <td className={`check-status-mark ${row.tube_l_status === "OK" ? "check-cell-ok" : ""}`}>{statusMark(row.tube_l_status ?? row.left_status)}</td>
               <td>{row.tube_l}</td>
-              <td className={`check-status-mark ${row.label_status === "OK" ? "check-cell-ok" : ""}`}>{row.label}</td>
+              <td className={`check-status-mark ${row.label_status === "OK" || row.completed ? "check-cell-ok" : ""}`}>{row.label}</td>
               <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
               <td className="check-status-mark">{statusMark(row.confirm_status)}</td>
               <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>

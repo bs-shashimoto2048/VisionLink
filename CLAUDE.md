@@ -90,21 +90,23 @@ VisionLink/
 - 検査完了時は**作業者確認（worker_confirmed）必須**。
 - YOLO モデル未配置時、`frame-analyze` は 503 を返す（`session_manager` 側でデモ検出を挿入するフォールバックあり）。
 
-## 現在の状態（2026-06-19 時点 / 復旧作業）
+## 現在の状態（2026-06-19 時点 / 復旧・統合作業）
 
-- `main`（HEAD `be14d39`）= **正常に動く土台**。backend import OK・frontend build OK を確認済み。
-- `recover`（`be14d39` 起点）= クリーンな復旧ブランチ。**現在ここで作業中**。
-- `codex-wip`（`57eed9c`）= Codex がトークン切れで中断した**壊れた未完成作業**を保全したブランチ。
+- `main`（`be14d39`）= 復旧前の土台（このあと `recover` を ff-only 統合予定）。
+- `recover` = `be14d39` を土台に、Codex が中断したバグ修正を**正しく実装し直したブランチ**。下記の修正を反映済み・ビルド/起動確認済み。
+- `codex-wip`（`57eed9c`）= Codex がトークン切れで中断した**壊れた未完成作業**を保全したアーカイブ（当面削除しない）。
 
-### Codex が実装途中だった内容（`instructions.md` 参照）
-1. **Rotate OCR の対象修正**: 「左側チューブ」ではなく「中央ガイドラインより左側の label/nmb」を 180°回転して OCR する仕様へ。
-   - backend `ai_pipeline.py`: `_should_rotate_left_label()` を新設（label/nmb 系を対象, tube 系は除外）。
-   - **破綻箇所**: `_run_ocr_for_targets` 内の呼び出しが新シグネチャと不一致（`bbox_pixel` 引数欠落で引数ズレ）。
+### 適用したバグ修正（`instructions.md` の仕様に準拠）
+1. **Rotate OCR の対象を修正**: 「左側チューブ」ではなく「中央ガイドラインより左側の label/nmb」を 180°回転して OCR する仕様へ。
+   - backend `ai_pipeline.py`: `_should_rotate_left_label()` / `_is_rotate_label_detection()` 等を新設（label/nmb 系を対象, tube 系は除外, debug crop は除外）。
+   - Codex の破綻（`_ocr_results_with_paddleocr` の呼び出しで `bbox_pixel` 欠落・引数ズレ／回転結果の `role="tube"`）を修正。回転結果は `role="label", side="left"`。
 2. **消込ロジックを左右別判定に修正**: 右チューブだけ読めても左チューブ/ALL OK になるバグを修正。
-   - `reconcileCheckRows` を `App.tsx` から `frontend/src/checkReconcile.ts` へ分離（こちらはほぼ完成済み）。
-   - `App.tsx` は `checkRows` を state 化し、フレーム毎に再消込する形へ変更。
+   - `reconcileCheckRows` を `frontend/src/checkReconcile.ts` に分離。左右別 Set（`leftTubeTexts`/`rightTubeTexts`）で判定し、両方 OK のときだけ `completed`。
+   - `App.tsx` は `checkRows` を state 化し、フレーム毎に再消込。OverlayCanvas は `rotated` の OCR を紫(`#a855f7`)表示（既存実装）。
 
-> 機能の作り直しは別タスク。まず `instructions.md` の D〜H（左右別判定・UI 条件・確認手順）を満たす形で再実装する想定。
+### 既知の未対応（別件・要相談）
+- `ai_pipeline.py` 末尾の `def ocr(...)` がモジュール関数 `preprocess_ocr_crop` 内にインデントされており、`YoloAIPipeline.ocr` メソッドとして存在しない（**be14d39 から続く既存の潜在バグ**）。`session_manager` の行 OCR 経路（`should_ocr` 時）で `pipeline.ocr()` 呼び出しが AttributeError になる恐れ。今回の修正スコープ外のため未着手。
+- `session_manager.py` の OCRResult 組み立て（フォールバック経路）は旧 `role=="tube"` ベースの rotated 判定のまま。主経路（`ocr_results()`）が結果を返す場合は上書きされるため通常は影響しないが、新仕様と不整合。
 
 ## コーディング / コミュニケーション規約（ユーザー共通設定より）
 
