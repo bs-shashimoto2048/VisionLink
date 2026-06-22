@@ -312,6 +312,56 @@ button:disabled {
   font-weight: 700;
 }
 
+/* 下部操作バー: [表示]/Rotate OCR/カメラ/検査 を常に1列（折り返さない）に収める（要件4） */
+.camera-bottom-bar {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  align-items: stretch;
+}
+.camera-bottom-bar > * {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.camera-bottom-bar .bottom-bar-select {
+  flex: 1.25 1 0;
+}
+.camera-bottom-bar select,
+.camera-bottom-bar button {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.4rem;
+  min-height: 40px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.camera-bottom-bar button.toggle-active {
+  background: linear-gradient(180deg, #7c3aed, #5b21b6);
+  color: #fff;
+  border-color: transparent;
+}
+
+/* カメラ右の設定パネル: 4調整UI（YOLO閾値/OCR閾値/表示FPS/識別FPS）（要件2） */
+.settings-panel .settings-field {
+  display: grid;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 700;
+}
+.settings-panel .settings-field input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+  min-height: 38px;
+}
+
 .video-stage {
   position: relative;
   min-height: 260px;
@@ -660,6 +710,17 @@ button:disabled {
 
   .camera-inline-status {
     font-size: 10px;
+  }
+
+  /* スマホ幅でも下部4操作を1列に収める（折り返し・はみ出し禁止） */
+  .camera-bottom-bar {
+    gap: 4px;
+  }
+  .camera-bottom-bar select,
+  .camera-bottom-bar button {
+    font-size: 10px;
+    padding: 0.3rem 0.2rem;
+    min-height: 40px;
   }
 
   .info-panel {

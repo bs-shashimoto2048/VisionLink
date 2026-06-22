@@ -20,11 +20,12 @@ import { CheckStatus, SessionStatus } from "./types";
 import type { CheckDataStatus, CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
 import { reconcileCheckRows } from "./checkReconcile";
 
+// 表示切替リスト: 順序は現状の逆順、デフォルトは「推論結果」（要件3）
 const OVERLAY_MODES = {
-  series_conf: "表示: シリーズ+確信度",
-  raw: "表示: 取得値そのまま",
-  ocr_result: "表示: OCR結果",
   inference_result: "表示: 推論結果",
+  ocr_result: "表示: OCR結果",
+  raw: "表示: 取得値そのまま",
+  series_conf: "表示: シリーズ+確信度",
 } as const;
 
 const TEXT = {
@@ -62,7 +63,7 @@ function App() {
   const [banner, setBanner] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [overlayMode, setOverlayMode] = useState<keyof typeof OVERLAY_MODES>("series_conf");
+  const [overlayMode, setOverlayMode] = useState<keyof typeof OVERLAY_MODES>("inference_result");
   const [yoloThreshold, setYoloThreshold] = useState(0.25);
   const [ocrThreshold, setOcrThreshold] = useState(0.5);
   const [rotateLeftTubeOcr, setRotateLeftTubeOcr] = useState(false);
@@ -442,47 +443,33 @@ function App() {
                   <div className="video-badge video-badge-right">検出: {inspection?.detections.length ?? 0}</div>
                 </div>
 
-                <label className="overlay-mode-control">
-                  表示切替
-                  <select value={overlayMode} onChange={(event) => setOverlayMode(event.target.value as keyof typeof OVERLAY_MODES)}>
+                <div className="camera-inline-status">
+                  S:{inspection?.status ?? "待機"} | N:{isOnline ? "ON" : "OFF"} | I:
+                  {inspection ? `${inspection.performance.yolo_ms}/${inspection.performance.ocr_ms}ms` : "N/A"}
+                </div>
+
+                {/* 下部操作バー: [表示]セレクタ / Rotate OCR / カメラ / 検査 を常に1列に収める（要件4） */}
+                <div className="camera-bottom-bar">
+                  <select
+                    className="bottom-bar-select"
+                    aria-label="表示切替"
+                    value={overlayMode}
+                    onChange={(event) => setOverlayMode(event.target.value as keyof typeof OVERLAY_MODES)}
+                  >
                     {Object.entries(OVERLAY_MODES).map(([value, label]) => (
                       <option key={value} value={value}>
                         {label}
                       </option>
                     ))}
                   </select>
-                </label>
-
-                <div className="camera-inline-status">
-                  S:{inspection?.status ?? "待機"} | N:{isOnline ? "ON" : "OFF"} | I:
-                  {inspection ? `${inspection.performance.yolo_ms}/${inspection.performance.ocr_ms}ms` : "N/A"}
-                </div>
-
-                <div className="camera-control-strip">
                   <button
                     className={rotateLeftTubeOcr ? "toggle-active" : ""}
                     title={rotateLeftTubeOcr ? "左側Tubeの180度回転OCRを無効にする" : "左側Tubeの180度回転OCRを有効にする"}
                     aria-label={rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
                     onClick={() => setRotateLeftTubeOcr((value) => !value)}
                   >
-                    {rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
+                    {rotateLeftTubeOcr ? "OCR回転 ON" : "OCR回転 OFF"}
                   </button>
-                  <label>
-                    YOLO閾値
-                    <input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} />
-                  </label>
-                  <label>
-                    OCR閾値
-                    <input type="number" min={0.05} max={0.95} step={0.05} value={ocrThreshold} onChange={(event) => setOcrThreshold(Number(event.target.value))} />
-                  </label>
-                  <label>
-                    表示FPS
-                    <input type="number" min={1} max={120} step={1} value={displayFps} onChange={(event) => setDisplayFps(Number(event.target.value))} />
-                  </label>
-                  <label>
-                    識別FPS
-                    <input type="number" min={1} max={5} step={1} value={analysisFps} onChange={(event) => setAnalysisFps(Number(event.target.value))} />
-                  </label>
                   <button
                     onClick={cameraState.running ? stopCamera : startCamera}
                     disabled={!isCheckTableReady && !cameraState.running}
@@ -501,7 +488,10 @@ function App() {
                 </div>
               </div>
 
-              <div className="info-panel">
+              {/* カメラ右の設定パネル: 旧表示項目(表示FPS/識別FPS の情報タイル)は機能を残したまま表示停止し、
+                  YOLO閾値 / OCR閾値 / 表示FPS / 識別FPS の4調整UIに作り替え（要件2） */}
+              <div className="info-panel settings-panel">
+                {/* 旧表示項目（復元できるよう保持・表示のみ停止）
                 <div className="info-tile">
                   <span>表示FPS</span>
                   <strong>{displayFps}</strong>
@@ -510,6 +500,23 @@ function App() {
                   <span>識別FPS</span>
                   <strong>{analysisFps}</strong>
                 </div>
+                */}
+                <label className="settings-field">
+                  YOLO閾値
+                  <input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} />
+                </label>
+                <label className="settings-field">
+                  OCR閾値
+                  <input type="number" min={0.05} max={0.95} step={0.05} value={ocrThreshold} onChange={(event) => setOcrThreshold(Number(event.target.value))} />
+                </label>
+                <label className="settings-field">
+                  表示FPS
+                  <input type="number" min={1} max={120} step={1} value={displayFps} onChange={(event) => setDisplayFps(Number(event.target.value))} />
+                </label>
+                <label className="settings-field">
+                  識別FPS
+                  <input type="number" min={1} max={5} step={1} value={analysisFps} onChange={(event) => setAnalysisFps(Number(event.target.value))} />
+                </label>
               </div>
             </div>
 
