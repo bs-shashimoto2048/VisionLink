@@ -39,6 +39,18 @@ const TEXT = {
 
 const DEFAULT_INTAKE = { qrText: "DEMO-0001", orderNo: "", serialNo: "", terminalName: "" };
 
+// 接続/セッション系ツール(再接続・カメラ切替・内部データ参照・ログアウト・intakeフォーム)を
+// UI から非表示にするフラグ。state/ハンドラ/ロジックは残し、true に戻せば復活する（要件F1）。
+const SHOW_SESSION_TOOLS = false;
+
+function rowKey(row: CheckRow, index: number) {
+  return `${row.tube_l}-${row.label}-${row.tube_r}-${index}`;
+}
+
+function isRowCompleted(row: CheckRow) {
+  return Boolean(row.completed) || row.all_status === "OK";
+}
+
 function statusTone(status: string) {
   if (status === CheckStatus.OK || status === SessionStatus.IN_PROGRESS) return "tone-ok";
   if (status === CheckStatus.NG || status === CheckStatus.MISMATCH) return "tone-ng";
@@ -269,7 +281,25 @@ function App() {
       return nextRows;
     });
   }, [checkRows.length, isCheckTableReady, isInspectionActive, lastFrameAnalysis?.detections, inspection?.detections, overlayOcrResults, guideX, reconcileFrameIndex]);
-  const allRowsCompleted = checkRows.length > 0 && checkRows.every((row) => row.completed || row.all_status === "OK");
+  const allRowsCompleted = checkRows.length > 0 && checkRows.every(isRowCompleted);
+
+  // 消込が成立した行を検出して、その行へ自動スクロール＋ハイライトする（要件F5）
+  const prevCompletedRef = useRef<Set<string>>(new Set());
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+  useEffect(() => {
+    const prev = prevCompletedRef.current;
+    const next = new Set<string>();
+    let newlyCompleted: string | null = null;
+    checkRows.forEach((row, index) => {
+      const key = rowKey(row, index);
+      if (isRowCompleted(row)) {
+        next.add(key);
+        if (!prev.has(key)) newlyCompleted = key;
+      }
+    });
+    prevCompletedRef.current = next;
+    if (newlyCompleted) setHighlightKey(newlyCompleted);
+  }, [checkRows]);
 
   useEffect(() => {
     if (overlayMode !== "ocr_result") return;
@@ -441,14 +471,14 @@ function App() {
                   <OverlayCanvas detections={inspection?.detections ?? []} ocrResults={overlayOcrResults} mode={overlayMode} />
                   <div className="video-badge">{cameraState.running ? "カメラ起動中" : "カメラ停止中"}</div>
                   <div className="video-badge video-badge-right">検出: {inspection?.detections.length ?? 0}</div>
+                  {/* 状態表示は映像内の固定オーバーレイにし、毎フレームの文字変化でフローが揺れないようにする（要件F5） */}
+                  <div className="camera-status-overlay">
+                    S:{inspection?.status ?? "待機"} | N:{isOnline ? "ON" : "OFF"} | I:
+                    {inspection ? `${inspection.performance.yolo_ms}/${inspection.performance.ocr_ms}ms` : "N/A"}
+                  </div>
                 </div>
 
-                <div className="camera-inline-status">
-                  S:{inspection?.status ?? "待機"} | N:{isOnline ? "ON" : "OFF"} | I:
-                  {inspection ? `${inspection.performance.yolo_ms}/${inspection.performance.ocr_ms}ms` : "N/A"}
-                </div>
-
-                {/* 下部操作バー: [表示]セレクタ / Rotate OCR / カメラ / 検査 を常に1列に収める（要件4） */}
+                {/* 下部操作バー: [表示]セレクタ / OCR⤵ / カメラ / 検査 を常に1列に収める（要件4） */}
                 <div className="camera-bottom-bar">
                   <select
                     className="bottom-bar-select"
@@ -468,7 +498,7 @@ function App() {
                     aria-label={rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
                     onClick={() => setRotateLeftTubeOcr((value) => !value)}
                   >
-                    {rotateLeftTubeOcr ? "OCR回転 ON" : "OCR回転 OFF"}
+                    {rotateLeftTubeOcr ? "OCR⤵ ON" : "OCR⤵ OFF"}
                   </button>
                   <button
                     onClick={cameraState.running ? stopCamera : startCamera}
@@ -487,66 +517,65 @@ function App() {
                   </button>
                 </div>
               </div>
-
-              {/* カメラ右の設定パネル: 旧表示項目(表示FPS/識別FPS の情報タイル)は機能を残したまま表示停止し、
-                  YOLO閾値 / OCR閾値 / 表示FPS / 識別FPS の4調整UIに作り替え（要件2） */}
-              <div className="info-panel settings-panel">
-                {/* 旧表示項目（復元できるよう保持・表示のみ停止）
-                <div className="info-tile">
-                  <span>表示FPS</span>
-                  <strong>{displayFps}</strong>
-                </div>
-                <div className="info-tile">
-                  <span>識別FPS</span>
-                  <strong>{analysisFps}</strong>
-                </div>
-                */}
-                <label className="settings-field">
-                  YOLO閾値
-                  <input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} />
-                </label>
-                <label className="settings-field">
-                  OCR閾値
-                  <input type="number" min={0.05} max={0.95} step={0.05} value={ocrThreshold} onChange={(event) => setOcrThreshold(Number(event.target.value))} />
-                </label>
-                <label className="settings-field">
-                  表示FPS
-                  <input type="number" min={1} max={120} step={1} value={displayFps} onChange={(event) => setDisplayFps(Number(event.target.value))} />
-                </label>
-                <label className="settings-field">
-                  識別FPS
-                  <input type="number" min={1} max={5} step={1} value={analysisFps} onChange={(event) => setAnalysisFps(Number(event.target.value))} />
-                </label>
-              </div>
             </div>
 
             {settingsOpen ? (
               <div className="settings-modal-backdrop" onClick={() => setSettingsOpen(false)}>
                 <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
-                  <div className="button-row wrap">
-                    <button onClick={() => void reconnectCamera()}>再接続</button>
-                    <button onClick={() => void switchCamera()}>カメラ切替</button>
-                    <button onClick={() => void handleLookup()}>内部データ参照</button>
-                    <button onClick={handleLogout}>ログアウト</button>
+                  <div className="settings-modal-header">
+                    <h3>設定</h3>
+                    <button onClick={() => setSettingsOpen(false)}>閉じる</button>
                   </div>
-                  <div className="form-grid intake-grid">
-                    <label>
-                      QR
-                      <input value={intake.qrText} onChange={(event) => setIntake({ ...intake, qrText: event.target.value })} />
+
+                  {/* オーバーレイの中身は4調整値のみ（要件F1） */}
+                  <div className="settings-fields">
+                    <label className="settings-field">
+                      YOLO閾値
+                      <input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} />
                     </label>
-                    <label>
-                      注文番号
-                      <input value={intake.orderNo} onChange={(event) => setIntake({ ...intake, orderNo: event.target.value })} />
+                    <label className="settings-field">
+                      OCR閾値
+                      <input type="number" min={0.05} max={0.95} step={0.05} value={ocrThreshold} onChange={(event) => setOcrThreshold(Number(event.target.value))} />
                     </label>
-                    <label>
-                      端末番号
-                      <input value={intake.serialNo} onChange={(event) => setIntake({ ...intake, serialNo: event.target.value })} />
+                    <label className="settings-field">
+                      表示FPS
+                      <input type="number" min={1} max={120} step={1} value={displayFps} onChange={(event) => setDisplayFps(Number(event.target.value))} />
                     </label>
-                    <label>
-                      端末名
-                      <input value={intake.terminalName} onChange={(event) => setIntake({ ...intake, terminalName: event.target.value })} />
+                    <label className="settings-field">
+                      識別FPS
+                      <input type="number" min={1} max={5} step={1} value={analysisFps} onChange={(event) => setAnalysisFps(Number(event.target.value))} />
                     </label>
                   </div>
+
+                  {/* 接続/セッション系・intakeフォームは非表示（state/ロジックは保持。SHOW_SESSION_TOOLS=true で復活） */}
+                  {SHOW_SESSION_TOOLS ? (
+                    <>
+                      <div className="button-row wrap">
+                        <button onClick={() => void reconnectCamera()}>再接続</button>
+                        <button onClick={() => void switchCamera()}>カメラ切替</button>
+                        <button onClick={() => void handleLookup()}>内部データ参照</button>
+                        <button onClick={handleLogout}>ログアウト</button>
+                      </div>
+                      <div className="form-grid intake-grid">
+                        <label>
+                          QR
+                          <input value={intake.qrText} onChange={(event) => setIntake({ ...intake, qrText: event.target.value })} />
+                        </label>
+                        <label>
+                          注文番号
+                          <input value={intake.orderNo} onChange={(event) => setIntake({ ...intake, orderNo: event.target.value })} />
+                        </label>
+                        <label>
+                          端末番号
+                          <input value={intake.serialNo} onChange={(event) => setIntake({ ...intake, serialNo: event.target.value })} />
+                        </label>
+                        <label>
+                          端末名
+                          <input value={intake.terminalName} onChange={(event) => setIntake({ ...intake, terminalName: event.target.value })} />
+                        </label>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -606,7 +635,7 @@ function App() {
 
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
             {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
-            <CheckDataTable rows={checkRows} />
+            <CheckDataTable rows={checkRows} highlightKey={highlightKey} />
 
             <div className="button-row wrap">
               <label className="checkbox">
@@ -823,7 +852,17 @@ function allStatusLabel(status?: "PENDING" | "OK" | "NG") {
   return "";
 }
 
-function CheckDataTable({ rows }: { rows: CheckRow[] }) {
+function CheckDataTable({ rows, highlightKey }: { rows: CheckRow[]; highlightKey?: string | null }) {
+  const highlightRowRef = useRef<HTMLTableRowElement | null>(null);
+
+  // 消込で確定した行をスクロール領域内で可視位置へ寄せる（ページは動かさない: block:"nearest"）
+  useEffect(() => {
+    if (!highlightKey) return;
+    const rowEl = highlightRowRef.current;
+    if (!rowEl) return;
+    rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [highlightKey]);
+
   return (
     <div className="check-table-wrap">
       <table className="check-data-table">
@@ -838,16 +877,25 @@ function CheckDataTable({ rows }: { rows: CheckRow[] }) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
-            <tr key={`${row.tube_l}-${row.label}-${row.tube_r}-${index}`} className={row.completed || row.all_status === "OK" ? "check-row-completed" : ""}>
-              <td className={`check-status-mark ${row.tube_l_status === "OK" ? "check-cell-ok" : ""}`}>{statusMark(row.tube_l_status ?? row.left_status)}</td>
-              <td>{row.tube_l}</td>
-              <td className={`check-status-mark ${row.label_status === "OK" || row.completed ? "check-cell-ok" : ""}`}>{row.label}</td>
-              <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
-              <td className="check-status-mark">{statusMark(row.confirm_status)}</td>
-              <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>
-            </tr>
-          ))}
+          {rows.map((row, index) => {
+            const key = rowKey(row, index);
+            const completed = isRowCompleted(row);
+            const isHighlight = key === highlightKey;
+            return (
+              <tr
+                key={key}
+                ref={isHighlight ? highlightRowRef : undefined}
+                className={`${completed ? "check-row-completed" : ""}${isHighlight ? " check-row-flash" : ""}`}
+              >
+                <td className={`check-status-mark ${row.tube_l_status === "OK" ? "check-cell-ok" : ""}`}>{statusMark(row.tube_l_status ?? row.left_status)}</td>
+                <td>{row.tube_l}</td>
+                <td className={`check-status-mark ${row.label_status === "OK" || row.completed ? "check-cell-ok" : ""}`}>{row.label}</td>
+                <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
+                <td className="check-status-mark">{statusMark(row.confirm_status)}</td>
+                <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>
+              </tr>
+            );
+          })}
           {!rows.length ? (
             <tr>
               <td colSpan={6} className="empty-state">
