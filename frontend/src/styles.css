@@ -193,6 +193,17 @@ button:disabled {
   margin: 0;
 }
 
+/* 最上部見出し VisionLink: 旧 hero タイトルの文字色(ブランド)でタイトルらしく（サイズは不変） */
+.card-header h2.app-title {
+  color: var(--brand);
+  letter-spacing: 0.04em;
+}
+
+/* 「検査テーブル」見出し: 周囲に合わせてもう少しだけ小さく（既定 1.5em → 1.2em） */
+.card-header h2.section-title {
+  font-size: 1.2em;
+}
+
 .card-header {
   display: flex;
   align-items: center;
@@ -376,11 +387,11 @@ button:disabled {
   font-size: 1rem;
 }
 
-/* 状態表示: 映像内の固定オーバーレイ（フローを動かさない / 揺れ防止）（要件F5） */
+/* 状態表示: 映像左上の固定オーバーレイ（要件5。フローを動かさない / 揺れ防止 / 透過維持） */
 .camera-status-overlay {
   position: absolute;
   left: 8px;
-  bottom: 8px;
+  top: 8px;
   z-index: 4;
   max-width: calc(100% - 16px);
   padding: 3px 8px;
@@ -471,10 +482,11 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* カメラ状態/検出数バッジは下段へ（上段左は状態オーバーレイに譲る。要件5） */
 .video-badge {
   position: absolute;
   left: 12px;
-  top: 12px;
+  bottom: 12px;
   padding: 3px 6px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.78);
@@ -527,6 +539,8 @@ button:disabled {
   flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
+  /* セレクタ行とテーブルヘッダーの間に少し余白（要件4） */
+  margin-bottom: 10px;
 }
 
 /* 幅配分は文字数比（製番8 : 盤番号2 : 端子台7、DOM順）。盤番号から先に詰める。 */
@@ -590,26 +604,20 @@ button:disabled {
   white-space: nowrap;
 }
 
-/* 列幅配分: ✓=最小 / Tube_L・Tube_R=広め / Label=狭 / ALL=小（全カラム1行に収める） */
+/* 列幅配分(L / Label / R / ALL の4列): L・R=広め(値8文字) / Label=中 / ALL=小（全カラム1行に収める） */
 .check-data-table th:nth-child(1),
 .check-data-table td:nth-child(1),
-.check-data-table th:nth-child(5),
-.check-data-table td:nth-child(5) {
-  width: 8%;
-}
-.check-data-table th:nth-child(2),
-.check-data-table td:nth-child(2),
-.check-data-table th:nth-child(4),
-.check-data-table td:nth-child(4) {
-  width: 31%;
-}
 .check-data-table th:nth-child(3),
 .check-data-table td:nth-child(3) {
-  width: 11%;
+  width: 33%;
 }
-.check-data-table th:nth-child(6),
-.check-data-table td:nth-child(6) {
-  width: 11%;
+.check-data-table th:nth-child(2),
+.check-data-table td:nth-child(2) {
+  width: 18%;
+}
+.check-data-table th:nth-child(4),
+.check-data-table td:nth-child(4) {
+  width: 16%;
 }
 
 .check-data-table thead th {

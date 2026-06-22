@@ -55,6 +55,22 @@ function isRowCompleted(row: CheckRow) {
   return Boolean(row.completed) || row.all_status === "OK";
 }
 
+// 映像左上の状態表示用: セッション状態を読んで分かる日本語に
+function sessionStatusLabel(status?: string) {
+  switch (status) {
+    case SessionStatus.IN_PROGRESS:
+      return "検査中";
+    case SessionStatus.PAUSED:
+      return "一時停止";
+    case SessionStatus.COMPLETED:
+      return "完了";
+    case SessionStatus.ABORTED:
+      return "中止";
+    default:
+      return "待機中";
+  }
+}
+
 function statusTone(status: string) {
   if (status === CheckStatus.OK || status === SessionStatus.IN_PROGRESS) return "tone-ok";
   if (status === CheckStatus.NG || status === CheckStatus.MISMATCH) return "tone-ng";
@@ -465,7 +481,7 @@ function App() {
         <>
           <section className="card">
             <div className="card-header">
-              <h2>VisionLink</h2>
+              <h2 className="app-title">VisionLink</h2>
               <div className="button-row">
                 <button onClick={() => setSettingsOpen((v) => !v)}>{settingsOpen ? "設定を閉じる" : "設定"}</button>
               </div>
@@ -479,10 +495,12 @@ function App() {
                   <OverlayCanvas detections={inspection?.detections ?? []} ocrResults={overlayOcrResults} mode={overlayMode} />
                   <div className="video-badge">{cameraState.running ? "カメラ起動中" : "カメラ停止中"}</div>
                   <div className="video-badge video-badge-right">検出: {inspection?.detections.length ?? 0}</div>
-                  {/* 状態表示は映像内の固定オーバーレイにし、毎フレームの文字変化でフローが揺れないようにする（要件F5） */}
+                  {/* 状態表示は映像内の固定オーバーレイ（左上）。略号をやめ読んで分かる表記に（要件5） */}
                   <div className="camera-status-overlay">
-                    S:{inspection?.status ?? "待機"} | N:{isOnline ? "ON" : "OFF"} | I:
-                    {inspection ? `${inspection.performance.yolo_ms}/${inspection.performance.ocr_ms}ms` : "N/A"}
+                    {sessionStatusLabel(inspection?.status)} ・ 通信{isOnline ? "ON" : "OFF"} ・{" "}
+                    {inspection
+                      ? `推論 ${inspection.performance.yolo_ms}ms / OCR ${inspection.performance.ocr_ms}ms`
+                      : "推論 —"}
                   </div>
                 </div>
 
@@ -600,7 +618,7 @@ function App() {
 
           <section className="card">
             <div className="card-header">
-              <h2>検査テーブル</h2>
+              <h2 className="section-title">検査テーブル</h2>
               <div className="button-row">
                 <button onClick={() => void refreshActiveSession()}>再読込</button>
                 <button
@@ -889,12 +907,10 @@ function CheckDataTable({ rows, highlightKey }: { rows: CheckRow[]; highlightKey
       <table className="check-data-table">
         <thead>
           <tr>
-            <th>✔</th>
-            <th>Tube_L</th>
+            <th>L</th>
             <th>Label</th>
-            <th>Tube_R</th>
-            <th>✔</th>
-            <th>ALL☑</th>
+            <th>R</th>
+            <th>ALL</th>
           </tr>
         </thead>
         <tbody>
@@ -908,18 +924,16 @@ function CheckDataTable({ rows, highlightKey }: { rows: CheckRow[]; highlightKey
                 ref={isHighlight ? highlightRowRef : undefined}
                 className={`${completed ? "check-row-completed" : ""}${isHighlight ? " check-row-flash" : ""}`}
               >
-                <td className={`check-status-mark ${row.tube_l_status === "OK" ? "check-cell-ok" : ""}`}>{statusMark(row.tube_l_status ?? row.left_status)}</td>
                 <td className={row.tube_l_status === "OK" ? "check-cell-ok" : ""}>{row.tube_l}</td>
                 <td className="check-status-mark">{row.label}</td>
                 <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
-                <td className="check-status-mark">{statusMark(row.confirm_status)}</td>
                 <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>
               </tr>
             );
           })}
           {!rows.length ? (
             <tr>
-              <td colSpan={6} className="empty-state">
+              <td colSpan={4} className="empty-state">
                 チェックデータがありません
               </td>
             </tr>
