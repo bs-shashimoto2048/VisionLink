@@ -33,8 +33,9 @@ except Exception:  # pragma: no cover - optional runtime dependency
 
 logger = logging.getLogger(__name__)
 
-ROTATE_LABEL_KEYWORDS = ("nmb", "label", "number", "terminal", "term", "no", "line")
-ROTATE_EXCLUDE_KEYWORDS = ("tube", "tube_l", "tube_r", "left_tube", "right_tube", "tube_left", "tube_right")
+# 新仕様: センターラインより左の tube のみ 180°回転して OCR。nmb/label 系は一切回転しない。
+ROTATE_TUBE_KEYWORDS = ("tube", "tube_l", "tube_r", "left_tube", "right_tube", "tube_left", "tube_right")
+ROTATE_EXCLUDE_KEYWORDS = ("nmb", "label", "number", "terminal", "term", "no", "line")
 
 
 DEFAULT_OCR_PREPROCESS_CONFIG: dict[str, Any] = {
@@ -281,10 +282,10 @@ class YoloAIPipeline:
             y2 = int(max(y1 + 1, min(height, (det.y + det.height) * height)))
             crop = image.crop((x1, y1, x2, y2))
             bbox_pixel = {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1}
-            rotated, _rotate_reason = self._should_rotate_left_label(det, bbox_pixel, width, rotate_left_tube_ocr, is_debug_crop=False)
+            rotated, _rotate_reason = self._should_rotate_left_tube(det, bbox_pixel, width, rotate_left_tube_ocr, is_debug_crop=False)
             if rotated:
                 crop = crop.transpose(Image.Transpose.ROTATE_180)
-                det.role = det.role or "label"
+                det.role = det.role or "tube"
                 det.side = det.side or "left"
             try:
                 result = self._ocr.ocr(__import__("numpy").array(crop), cls=False)
@@ -373,7 +374,7 @@ class YoloAIPipeline:
         results: list[OCRResult] = []
         for detection_index, det in enumerate(crop_targets):
             fields_text = self._detection_text_fields(det)
-            is_rotate_label = self._is_rotate_label_detection(det)
+            is_rotate_tube = self._is_rotate_tube_detection(det)
             x1 = int(max(0, min(image_width - 1, det.x * image_width)))
             y1 = int(max(0, min(image_height - 1, det.y * image_height)))
             x2 = int(max(x1 + 1, min(image_width, (det.x + det.width) * image_width)))
@@ -381,7 +382,7 @@ class YoloAIPipeline:
             crop = image.crop((x1, y1, x2, y2))
             bbox_pixel = {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1}
             is_left_of_guide = self._center_x_of_detection(det, image_width) < image_width * 0.5
-            rotated, reason = self._should_rotate_left_label(
+            rotated, reason = self._should_rotate_left_tube(
                 det,
                 bbox_pixel,
                 image_width,
@@ -391,7 +392,7 @@ class YoloAIPipeline:
             crop_shape_before = self._shape_of(crop)
             if rotated:
                 crop = crop.transpose(Image.Transpose.ROTATE_180)
-                det.role = det.role or "label"
+                det.role = det.role or "tube"
                 det.side = det.side or "left"
             crop_shape_after_rotate = self._shape_of(crop)
             crop_array = __import__("numpy").array(crop)
@@ -404,7 +405,7 @@ class YoloAIPipeline:
             ratio = self._ratio_of(crop_array)
             if self._ocr_debug_log_enabled:
                 logger.info(
-                    "PaddleOCR preprocess rotate_left_tube_ocr=%s detection_index=%s class_name=%s role=%s side=%s fields_text=%s bbox_raw=%s bbox_pixel=%s guide_x=%s center_x=%s image_center_x=%s is_rotate_label=%s is_left_of_guide=%s is_debug_crop=%s rotated=%s reason=%s crop_shape_before=%s crop_shape_after_rotate=%s crop_shape_after_preprocess=%s ratio=%.3f ops=%s",
+                    "PaddleOCR preprocess rotate_left_tube_ocr=%s detection_index=%s class_name=%s role=%s side=%s fields_text=%s bbox_raw=%s bbox_pixel=%s guide_x=%s center_x=%s image_center_x=%s is_rotate_tube=%s is_left_of_guide=%s is_debug_crop=%s rotated=%s reason=%s crop_shape_before=%s crop_shape_after_rotate=%s crop_shape_after_preprocess=%s ratio=%.3f ops=%s",
                     rotate_left_tube_ocr,
                     detection_index,
                     self._class_name(det),
@@ -416,7 +417,7 @@ class YoloAIPipeline:
                     0.5,
                     self._center_x_of_detection(det, image_width),
                     image_width * 0.5,
-                    is_rotate_label,
+                    is_rotate_tube,
                     is_left_of_guide,
                     debug_crop_used,
                     rotated,
@@ -442,7 +443,7 @@ class YoloAIPipeline:
                 raise
             if self._ocr_debug_log_enabled:
                 logger.info(
-                    "PaddleOCR crop rotate_left_tube_ocr=%s detection_index=%s class_name=%s role=%s side=%s fields_text=%s bbox_raw=%s bbox_pixel=%s is_rotate_label=%s is_left_of_guide=%s rotated=%s reason=%s",
+                    "PaddleOCR crop rotate_left_tube_ocr=%s detection_index=%s class_name=%s role=%s side=%s fields_text=%s bbox_raw=%s bbox_pixel=%s is_rotate_tube=%s is_left_of_guide=%s rotated=%s reason=%s",
                     rotate_left_tube_ocr,
                     detection_index,
                     self._class_name(det),
@@ -451,7 +452,7 @@ class YoloAIPipeline:
                     fields_text,
                     [det.x, det.y, det.width, det.height],
                     [x1, y1, x2, y2],
-                    is_rotate_label,
+                    is_rotate_tube,
                     is_left_of_guide,
                     rotated,
                     reason,
@@ -474,7 +475,7 @@ class YoloAIPipeline:
                         rotated=rotated,
                         rotation_deg=180 if rotated else 0,
                         side="left" if rotated else det.side,
-                        role="label" if rotated else det.role,
+                        role="tube" if rotated else det.role,
                     )
                 )
         return results
@@ -556,15 +557,16 @@ class YoloAIPipeline:
             )
         return " ".join(str(value).lower() for value in values if value)
 
-    def _is_rotate_label_detection(self, detection: DetectionBox | dict[str, Any]) -> bool:
+    def _is_rotate_tube_detection(self, detection: DetectionBox | dict[str, Any]) -> bool:
         text = self._detection_text_fields(detection)
         if not text:
             return False
+        # nmb/label 系は除外。tube 系のみ回転対象。
         if any(token in text for token in ROTATE_EXCLUDE_KEYWORDS):
             return False
-        return any(token in text for token in ROTATE_LABEL_KEYWORDS)
+        return any(token in text for token in ROTATE_TUBE_KEYWORDS)
 
-    def _should_rotate_left_label(
+    def _should_rotate_left_tube(
         self,
         detection: DetectionBox | dict[str, Any],
         bbox_pixel: object,
@@ -576,12 +578,12 @@ class YoloAIPipeline:
             return False, "rotate_disabled"
         if is_debug_crop:
             return False, "debug_crop_no_rotate"
-        if not self._is_rotate_label_detection(detection):
-            return False, "not_left_label_target"
+        if not self._is_rotate_tube_detection(detection):
+            return False, "not_left_tube_target"
         center_x = self._bbox_center_x(bbox_pixel)
         if center_x >= image_width * 0.5:
             return False, "right_of_guide"
-        return True, "rotate_left_label"
+        return True, "rotate_left_tube"
 
     def _debug_ocr_crop_targets(self) -> list[DetectionBox]:
         return [

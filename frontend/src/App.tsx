@@ -76,8 +76,8 @@ function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [overlayMode, setOverlayMode] = useState<keyof typeof OVERLAY_MODES>("inference_result");
-  const [yoloThreshold, setYoloThreshold] = useState(0.25);
-  const [ocrThreshold, setOcrThreshold] = useState(0.5);
+  const [yoloThreshold, setYoloThreshold] = useState(0.6);
+  const [ocrThreshold, setOcrThreshold] = useState(0.6);
   const [rotateLeftTubeOcr, setRotateLeftTubeOcr] = useState(false);
   const [displayFps, setDisplayFps] = useState(30);
   const [analysisFps, setAnalysisFps] = useState(2);
@@ -478,7 +478,7 @@ function App() {
                   </div>
                 </div>
 
-                {/* 下部操作バー: [表示]セレクタ / OCR⤵ / カメラ / 検査 を常に1列に収める（要件4） */}
+                {/* 下部操作バー: [表示]セレクタ / OCR Turn / カメラ / 検査 を常に1列に収める（要件4） */}
                 <div className="camera-bottom-bar">
                   <select
                     className="bottom-bar-select"
@@ -498,7 +498,7 @@ function App() {
                     aria-label={rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
                     onClick={() => setRotateLeftTubeOcr((value) => !value)}
                   >
-                    {rotateLeftTubeOcr ? "OCR⤵ ON" : "OCR⤵ OFF"}
+                    {rotateLeftTubeOcr ? "OCR Turn ON" : "OCR Turn OFF"}
                   </button>
                   <button
                     onClick={cameraState.running ? stopCamera : startCamera}

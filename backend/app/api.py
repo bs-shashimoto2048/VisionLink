@@ -106,8 +106,8 @@ async def frame_analyze(
     session_id: str = Form(...),
     operator_id: str = Form(...),
     frame_index: int = Form(0),
-    yolo_confidence_threshold: float = Form(0.25),
-    ocr_confidence_threshold: float = Form(0.5),
+    yolo_confidence_threshold: float = Form(0.6),
+    ocr_confidence_threshold: float = Form(0.6),
     rotate_left_tube_ocr: bool = Form(False),
     frame: UploadFile = File(...),
 ) -> FrameAnalyzeResponse:

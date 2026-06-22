@@ -97,16 +97,16 @@ VisionLink/
 - `codex-wip`（`57eed9c`）= Codex がトークン切れで中断した**壊れた未完成作業**を保全したアーカイブ（当面削除しない）。
 
 ### 適用したバグ修正（`instructions.md` の仕様に準拠）
-1. **Rotate OCR の対象を修正**: 「左側チューブ」ではなく「中央ガイドラインより左側の label/nmb」を 180°回転して OCR する仕様へ。
-   - backend `ai_pipeline.py`: `_should_rotate_left_label()` / `_is_rotate_label_detection()` 等を新設（label/nmb 系を対象, tube 系は除外, debug crop は除外）。
-   - Codex の破綻（`_ocr_results_with_paddleocr` の呼び出しで `bbox_pixel` 欠落・引数ズレ／回転結果の `role="tube"`）を修正。回転結果は `role="label", side="left"`。
+1. **Rotate OCR の対象（最新仕様 / `ui/camera-controls` で反転）**: **「中央ガイドラインより左側にある tube のみ」を 180°回転して OCR する。`nmb`/`label` 系は一切回転しない。**
+   - backend `ai_pipeline.py`: `_should_rotate_left_tube()` / `_is_rotate_tube_detection()`（回転対象=`ROTATE_TUBE_KEYWORDS`=tube 系, 除外=`ROTATE_EXCLUDE_KEYWORDS`=nmb/label 系, debug crop は除外）。回転時の付与は `role="tube", side="left"`。
+   - 以前は「左 label/nmb を回転・tube 除外」だったが、画面確定に伴い include/exclude を反転（tube 回転・nmb 無処理）。`session_manager.py` のフォールバック rotated 判定（`role=="tube"` ベース）と整合。
 2. **消込ロジックを左右別判定に修正**: 右チューブだけ読めても左チューブ/ALL OK になるバグを修正。
    - `reconcileCheckRows` を `frontend/src/checkReconcile.ts` に分離。左右別 Set（`leftTubeTexts`/`rightTubeTexts`）で判定し、両方 OK のときだけ `completed`。
    - `App.tsx` は `checkRows` を state 化し、フレーム毎に再消込。OverlayCanvas は `rotated` の OCR を紫(`#a855f7`)表示（既存実装）。
 
 ### 既知の未対応（別件・要相談）
 - `ai_pipeline.py` 末尾の `def ocr(...)` がモジュール関数 `preprocess_ocr_crop` 内にインデントされており、`YoloAIPipeline.ocr` メソッドとして存在しない（**be14d39 から続く既存の潜在バグ**）。`session_manager` の行 OCR 経路（`should_ocr` 時）で `pipeline.ocr()` 呼び出しが AttributeError になる恐れ。今回の修正スコープ外のため未着手。
-- `session_manager.py` の OCRResult 組み立て（フォールバック経路）は旧 `role=="tube"` ベースの rotated 判定のまま。主経路（`ocr_results()`）が結果を返す場合は上書きされるため通常は影響しないが、新仕様と不整合。
+- ~~`session_manager.py` のフォールバック rotated 判定が tube ベースで新仕様と不整合~~ → Rotate OCR を tube ベースへ反転したため**解消**（end-to-end で tube 基準に統一）。
 
 ## コーディング / コミュニケーション規約（ユーザー共通設定より）
 
