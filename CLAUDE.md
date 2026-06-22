@@ -2,7 +2,7 @@
 
 スマートフォンをエッジ端末として使う**検査支援 Web / PWA アプリ（PoC）**。
 製造現場で端子台（チューブ＋ラベル）をカメラで撮影し、YOLO で物体検出・PaddleOCR で文字認識し、
-社内マスタ（CSV）の検査テーブルと突き合わせて「左チューブ / ラベル / 右チューブ」を消し込む。
+社内マスタ（CSV）の検査テーブルと突き合わせて左右チューブを消し込む。
 
 - Frontend: React 18 + TypeScript + Vite（PWA）
 - Backend: FastAPI + SQLite
@@ -39,7 +39,7 @@ VisionLink/
       db.py                SQLite 永続化
       schemas.py           Pydantic スキーマ（DetectionBox, OCRResult, CheckStatus 等）
       services/
-        ai_pipeline.py     YOLO/OCR 実行エンジン（YoloAIPipeline）。OCR 前処理・回転処理
+        ai_pipeline.py     YOLO/OCR 実行エンジン（YoloAIPipeline）。OCR 前処理・回転・nmb 数字化
         session_manager.py セッション生成/状態管理/フレーム処理の統合（manager シングルトン）
         judgement.py       行判定ロジック（judge_row, effective_status）
         internal_data.py   社内マスタ照合（モック）
@@ -51,15 +51,15 @@ VisionLink/
     scripts/               HTTPS 証明書生成・起動
   frontend/
     src/
-      App.tsx              メイン UI（検査画面、消込テーブル表示）
+      App.tsx              メイン UI（検査画面、消込テーブル、オーバーレイ描画）
       api.ts               API クライアント
       camera.ts            カメラ制御（useCamera, useFrameSampler）
       types.ts             型定義（CheckRow, OCRResult, DetectionBox 等）
-      checkReconcile.ts    ★消込ロジック（reconcileCheckRows）。※recover には未存在（codex-wip で新規追加）
+      checkReconcile.ts    消込ロジック（reconcileCheckRows, normalizeCheckText）
       styles.css
   docs/                    ARCHITECTURE.md, API.md, SPEC.md, OCR_STRATEGY.md ほか
   model/paddleocr/...      PaddleOCR 推論モデル
-  tube_label_template.csv  検査テーブル CSV テンプレート
+  tube_label_template.csv  検査テーブル CSV テンプレート（tube_l,label,tube_r。tube_l==tube_r）
 ```
 
 ## データ / 処理の流れ
@@ -70,10 +70,10 @@ VisionLink/
 4. フレーム解析（繰り返し）`POST /api/inspection/frame-analyze`（multipart, JPEG/PNG）
    - `session_manager.process_frame()` が統合:
      - `pipeline.detect()` … YOLO 物体検出
-     - `pipeline.ocr_detections()` / `pipeline.ocr_results()` … 検出 bbox を crop して OCR
+     - `pipeline.ocr_detections()` / `pipeline.ocr_results()` … 検出 bbox を crop して OCR（nmb は数字化）
      - `evaluate_ocr_stability()` … 連続フレームで安定したら `should_ocr`
      - `judge_row()` … 行判定 → `check_status` 更新
-   - レスポンス: `detections`, `ocr_results`, `rows`, `performance`(yolo_ms/ocr_ms/total_ms)
+   - レスポンス: `detections`, `ocr_results`(label/side/role/rotated 付き), `rows`, `performance`(yolo_ms/ocr_ms/total_ms)
 5. フロントは `ocr_results` と検査テーブル行を `reconcileCheckRows()` で突き合わせて消し込み表示
 6. 手修正 `POST .../rows/{line_no}/manual-edit`
 7. 完了 `POST .../complete`（`worker_confirmed` 必須）／pause/resume/abort あり
@@ -90,23 +90,57 @@ VisionLink/
 - 検査完了時は**作業者確認（worker_confirmed）必須**。
 - YOLO モデル未配置時、`frame-analyze` は 503 を返す（`session_manager` 側でデモ検出を挿入するフォールバックあり）。
 
-## 現在の状態（2026-06-19 時点 / 復旧・統合作業）
+---
 
-- `main`（`be14d39`）= 復旧前の土台（このあと `recover` を ff-only 統合予定）。
-- `recover` = `be14d39` を土台に、Codex が中断したバグ修正を**正しく実装し直したブランチ**。下記の修正を反映済み・ビルド/起動確認済み。
-- `codex-wip`（`57eed9c`）= Codex がトークン切れで中断した**壊れた未完成作業**を保全したアーカイブ（当面削除しない）。
+# 確定仕様（PoC v1）
 
-### 適用したバグ修正（`instructions.md` の仕様に準拠）
-1. **Rotate OCR の対象（最新仕様 / `ui/camera-controls` で反転）**: **「中央ガイドラインより左側にある tube のみ」を 180°回転して OCR する。`nmb`/`label` 系は一切回転しない。**
-   - backend `ai_pipeline.py`: `_should_rotate_left_tube()` / `_is_rotate_tube_detection()`（回転対象=`ROTATE_TUBE_KEYWORDS`=tube 系, 除外=`ROTATE_EXCLUDE_KEYWORDS`=nmb/label 系, debug crop は除外）。回転時の付与は `role="tube", side="left"`。
-   - 以前は「左 label/nmb を回転・tube 除外」だったが、画面確定に伴い include/exclude を反転（tube 回転・nmb 無処理）。`session_manager.py` のフォールバック rotated 判定（`role=="tube"` ベース）と整合。
-2. **消込ロジックを左右別判定に修正**: 右チューブだけ読めても左チューブ/ALL OK になるバグを修正。
-   - `reconcileCheckRows` を `frontend/src/checkReconcile.ts` に分離。左右別 Set（`leftTubeTexts`/`rightTubeTexts`）で判定し、両方 OK のときだけ `completed`。
-   - `App.tsx` は `checkRows` を state 化し、フレーム毎に再消込。OverlayCanvas は `rotated` の OCR を紫(`#a855f7`)表示（既存実装）。
+## 画面（スマホ縦・1画面・レイアウトは動かさない）
+1. ヘッダー：左「VisionLink」（タイトル色）／右「設定」。最上段の別タイトル・"検査" 文字列は無し。
+2. 映像：比率 4:3（640:480）、幅は画面いっぱい。
+3. 操作1行：`[表示] [OCR Turn] [カメラ 開始/停止] [検査 開始/停止]`（常に1列・折り返し禁止）。
+4. 検査テーブル見出し（やや小さめ）＋進捗表示＋`[再読込][完了]`。
+5. 選択リスト1行：`[製番(8字)] [盤番号(2字)] [端子台(5〜7字)]`、収まらなければ盤番号から省略。見出しとの間に少し余白。
+6. データ表：列 `L / Label / R / ALL`（✓ 列は廃止）。幅は画面に収まる（`table-layout:fixed`・min-width なし・ellipsis）。データ行だけ縦スクロール、周囲は固定。
+- 進捗表示（見出しと再読込の中間）：未完了は青字「完了数 / 総数」、全完了で緑字「検査完了」。既存の消込状態から算出。
 
-### 既知の未対応（別件・要相談）
-- ~~`ai_pipeline.py` 末尾の `def ocr(...)` が `preprocess_ocr_crop` 内にインデントされ `YoloAIPipeline.ocr` メソッドとして存在せず、行 OCR 経路（`should_ocr` 時）で AttributeError~~ → **解消**。`def ocr` をクラス内の正しいメソッドへ移設（`preprocess_ocr_crop` は不変）。`pipeline.ocr()` で `OcrResult` を返すことを確認済み。
-- ~~`session_manager.py` のフォールバック rotated 判定が tube ベースで新仕様と不整合~~ → Rotate OCR を tube ベースへ反転したため**解消**（end-to-end で tube 基準に統一）。
+## カメラ / オーバーレイ
+- 起動既定は背面カメラ（`facingMode: "environment"`）。
+- 検出枠：塗りなし・線のみ・細め(約1.25px)・透過(約0.85)。紫=左 tube 回転／シアン=推論。
+- OCR テキスト：小さめ・透過(約0.9)・不透明背景なし（影で可読性補助）。
+- 状態オーバーレイ：映像左上、小さめ・暗背景薄め(alpha 約0.5)・略号でなく読める表記（例「検査中 ・ 通信ON ・ 推論 141ms / OCR 1174ms」）。
+
+## 検出・OCR・回転（OCR Turn）
+- Rotate OCR ON のとき、**センターラインより左の tube 検出のみ 180°回転して OCR**。nmb/label・右 tube・デバッグ crop は回転しない。
+  - backend: `_is_rotate_tube_detection()` / `_should_rotate_left_tube()`（対象=`ROTATE_TUBE_KEYWORDS`, 除外=`ROTATE_EXCLUDE_KEYWORDS`=nmb/label 系）。回転時の付与は `role="tube", side="left"`。
+- 左右分類は `OCRResult` に載せた **YOLO クラス名(label)＋中心X** で対称判定（回転の副作用＝rotated の role/side に非依存）。
+
+## nmb（番号）の数字化
+- nmb 系（クラス名 nmb/label）の OCR は**数字のみで確定**（値域 1〜999）。見間違いを数字へ寄せる（I/l/|→1, O/o→0, S→5, B→8, Z→2, G→6、非数字除去）。tube は対象外。
+  - backend: `_is_nmb_detection()` / `_confine_nmb_text()`（`_ocr_results_with_paddleocr` 主経路と `ocr_detections` の両方に適用）。
+
+## 消込ロジック（`checkReconcile.ts`）
+- 各行は回答（検査テーブルの期待値）を1つ持ち（CSV では `tube_l==tube_r`）、左右 tube とも同じ回答と照合。
+- 片側ラッチ：一致した側を OK として保持（以降別文字を読んでも OK）。一致側セルの文字色を緑(`#16a34a`)に。
+- 照合の正規化（`normalizeCheckText`）：大文字化・空白除去に加え **O と 0 を等価扱い**（両辺）。表示値は OCR original のまま。
+- 両側 OK で行を消込完了（ALL）。完了時は該当行へ自動スクロール/ハイライト。リセットは行/テーブル読み直し時のみ。
+- nmb は消込対象外（左右 tube のみ）。検査開始はテーブル読込後のみ有効。
+
+## 設定（「設定」で開くオーバーレイ）
+- 中身は4項目のみ：YOLO閾値(既定 0.6)／OCR閾値(既定 0.6)／表示FPS／識別FPS。メインにかぶせる形（レイアウトを押し広げない）。
+- 接続/セッション系（再接続・カメラ切替・内部データ参照・ログアウト・QR・注文番号・端末番号・端末名）と OK/NG/Pending カード・状態カード・注意書きは **UI 非表示（ロジックは残置）**。`SHOW_SESSION_TOOLS` / `SHOW_STATUS_PANELS` フラグで復元可。表示FPS は未配線。
+
+## 前提・依存
+- YOLO クラス名が "tube" 系 / "nmb"・"label" 系キーワードを含むこと。
+- nmb は 1〜999 の数値。右 tube は非回転で読める向き。
+
+## スコープ外（保留）
+- 検査結果保存・ユーザー情報・ログイン/セットアップ画面の設計（機能はコード残置・UI 非表示）。表示FPS の配線。nmb の桁数 cap。
+
+## リポジトリ
+- `main` = PoC 完成版（`poc-v1` タグで固定）。
+- `codex-wip` = Codex の壊れた未完成作業のアーカイブ（削除しない）。
+
+---
 
 ## コーディング / コミュニケーション規約（ユーザー共通設定より）
 
