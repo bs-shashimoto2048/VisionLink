@@ -729,11 +729,12 @@ button:disabled {
     min-height: 38px;
   }
 
+  /* スマホ: 幅いっぱい・4:3(640:480)固定。高さは幅から算出し最初から確保（カメラ起動で揺れない）。 */
   .video-stage {
+    width: 100%;
     aspect-ratio: 4 / 3;
     min-height: 0;
-    max-height: 38vh;
-    max-height: 38dvh;
+    max-height: none;
   }
 
   .camera-control-strip {
@@ -804,8 +805,7 @@ button:disabled {
   }
 
   .video-stage {
-    max-height: 34vh;
-    max-height: 34dvh;
+    max-height: none;
   }
 
   .check-table-wrap {

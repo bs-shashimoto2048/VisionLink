@@ -90,50 +90,28 @@ export function reconcileCheckRows(args: {
       return row;
     }
 
-    const rowLabel = normalizeCheckText(row.label);
-    const rowTubeL = normalizeCheckText(row.tube_l);
-    const rowTubeR = normalizeCheckText(row.tube_r);
-    const labelDetected = labelTexts.has(rowLabel);
+    // 各行の回答は1つ（チューブの期待値。CSV では tube_l == tube_r）。左右ともこの同じ回答と突合する。
+    // 中央 label/nmb は消込判定に含めない。
+    const answer = normalizeCheckText(row.tube_l) || normalizeCheckText(row.tube_r);
+    const leftMatched = Boolean(answer) && (leftTubeTexts.has(answer) || fallbackTubeTexts.has(answer));
+    const rightMatched = Boolean(answer) && (rightTubeTexts.has(answer) || fallbackTubeTexts.has(answer));
 
-    const tubeLDetected = leftTubeTexts.has(rowTubeL) || fallbackTubeTexts.has(rowTubeL);
-    const tubeRDetected = rightTubeTexts.has(rowTubeR) || fallbackTubeTexts.has(rowTubeR);
+    // 一度 OK になった側はラッチ（保持）。リセットは行/テーブルの読み直し時のみ（= checkRows の作り直し）。
+    const nextTubeLStatus: CheckDataStatus = isGoodStatus(row.tube_l_status) || leftMatched ? "OK" : "PENDING";
+    const nextTubeRStatus: CheckDataStatus = isGoodStatus(row.tube_r_status) || rightMatched ? "OK" : "PENDING";
 
-    const nextTubeLStatus: CheckDataStatus = isGoodStatus(row.tube_l_status) || (labelDetected && tubeLDetected) ? "OK" : "PENDING";
-    const nextTubeRStatus: CheckDataStatus = isGoodStatus(row.tube_r_status) || (labelDetected && tubeRDetected) ? "OK" : "PENDING";
-
-    if (labelDetected && rowTubeL && rowTubeL === rowTubeR && (leftTubeTexts.has(rowTubeL) || rightTubeTexts.has(rowTubeR) || fallbackTubeTexts.has(rowTubeL))) {
-      return {
-        ...row,
-        tube_l_status: "OK",
-        tube_r_status: "OK",
-        label_status: "OK",
-        all_status: "OK",
-        confirm_status: "OK",
-        completed: true,
-      };
-    }
-
-    if (nextTubeLStatus === "OK" && nextTubeRStatus === "OK") {
-      return {
-        ...row,
-        tube_l_status: "OK",
-        tube_r_status: "OK",
-        label_status: "OK",
-        all_status: "OK",
-        confirm_status: "OK",
-        completed: true,
-      };
-    }
+    const completed = nextTubeLStatus === "OK" && nextTubeRStatus === "OK";
 
     return {
       ...row,
       tube_l_status: nextTubeLStatus,
       tube_r_status: nextTubeRStatus,
-      label_status: labelDetected ? "OK" : (row.label_status ?? "PENDING"),
       left_status: nextTubeLStatus,
-      confirm_status: row.confirm_status ?? "PENDING",
-      all_status: row.all_status ?? "PENDING",
-      completed: row.completed ?? false,
+      // label は判定に含めないため変更しない（既存値を維持）
+      label_status: row.label_status ?? "PENDING",
+      confirm_status: completed ? "OK" : (row.confirm_status ?? "PENDING"),
+      all_status: completed ? "OK" : (row.all_status ?? "PENDING"),
+      completed,
     };
   });
 

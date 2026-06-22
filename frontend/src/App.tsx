@@ -43,6 +43,10 @@ const DEFAULT_INTAKE = { qrText: "DEMO-0001", orderNo: "", serialNo: "", termina
 // UI から非表示にするフラグ。state/ハンドラ/ロジックは残し、true に戻せば復活する（要件F1）。
 const SHOW_SESSION_TOOLS = false;
 
+// OK/NG/Pending サマリー・状態カード・注意書きを UI から非表示にするフラグ（集計/state は維持）。
+// スマホで場所を圧迫するため。true に戻せば復活する。
+const SHOW_STATUS_PANELS = false;
+
 function rowKey(row: CheckRow, index: number) {
   return `${row.tube_l}-${row.label}-${row.tube_r}-${index}`;
 }
@@ -353,7 +357,8 @@ function App() {
     setLastFrameAnalysis(null);
     setWorkerConfirmed(false);
     window.localStorage.setItem("visionlink-session", response.session_id);
-    setBanner(`セッション開始: ${response.session_id}`);
+    // セッション開始の表示は非表示（要件フェーズ2）。開始ロジックは維持。バナー要素はエラー表示用に残す。
+    // setBanner(`セッション開始: ${response.session_id}`);
   }
 
   async function handleStopInspection() {
@@ -644,32 +649,38 @@ function App() {
               </label>
             </div>
 
-            <div className="summary-grid">
-              <div className="summary-box">
-                <span>OK</span>
-                <strong>{inspection?.summary?.ok_count ?? 0}</strong>
+            {/* OK/NG/Pending サマリー（集計は維持・表示のみ停止） */}
+            {SHOW_STATUS_PANELS ? (
+              <div className="summary-grid">
+                <div className="summary-box">
+                  <span>OK</span>
+                  <strong>{inspection?.summary?.ok_count ?? 0}</strong>
+                </div>
+                <div className="summary-box">
+                  <span>NG</span>
+                  <strong>{inspection?.summary?.ng_count ?? 0}</strong>
+                </div>
+                <div className="summary-box">
+                  <span>Pending</span>
+                  <strong>{inspection?.summary?.pending_count ?? 0}</strong>
+                </div>
               </div>
-              <div className="summary-box">
-                <span>NG</span>
-                <strong>{inspection?.summary?.ng_count ?? 0}</strong>
-              </div>
-              <div className="summary-box">
-                <span>Pending</span>
-                <strong>{inspection?.summary?.pending_count ?? 0}</strong>
-              </div>
-            </div>
+            ) : null}
           </section>
         </>
       )}
 
-      <footer className="page-footer">
-        <div className={`status-card ${statusTone(statusLabel)}`}>
-          <span className="status-label">状態</span>
-          <strong>{statusLabel}</strong>
-          <span className="status-meta">{operator ? `${operator.display_name} / ${operator.operator_id}` : "社員番号4桁を入力"}</span>
-        </div>
-        <p className="lead">{TEXT.description}</p>
-      </footer>
+      {/* 状態カード(IN_PROGRESS/Operator)・最下段の注意書き（表示のみ停止・ロジックは維持） */}
+      {SHOW_STATUS_PANELS ? (
+        <footer className="page-footer">
+          <div className={`status-card ${statusTone(statusLabel)}`}>
+            <span className="status-label">状態</span>
+            <strong>{statusLabel}</strong>
+            <span className="status-meta">{operator ? `${operator.display_name} / ${operator.operator_id}` : "社員番号4桁を入力"}</span>
+          </div>
+          <p className="lead">{TEXT.description}</p>
+        </footer>
+      ) : null}
     </div>
   );
 }
@@ -888,8 +899,8 @@ function CheckDataTable({ rows, highlightKey }: { rows: CheckRow[]; highlightKey
                 className={`${completed ? "check-row-completed" : ""}${isHighlight ? " check-row-flash" : ""}`}
               >
                 <td className={`check-status-mark ${row.tube_l_status === "OK" ? "check-cell-ok" : ""}`}>{statusMark(row.tube_l_status ?? row.left_status)}</td>
-                <td>{row.tube_l}</td>
-                <td className={`check-status-mark ${row.label_status === "OK" || row.completed ? "check-cell-ok" : ""}`}>{row.label}</td>
+                <td className={row.tube_l_status === "OK" ? "check-cell-ok" : ""}>{row.tube_l}</td>
+                <td className="check-status-mark">{row.label}</td>
                 <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
                 <td className="check-status-mark">{statusMark(row.confirm_status)}</td>
                 <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>
