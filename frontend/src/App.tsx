@@ -302,6 +302,9 @@ function App() {
     });
   }, [checkRows.length, isCheckTableReady, isInspectionActive, lastFrameAnalysis?.detections, inspection?.detections, overlayOcrResults, guideX, reconcileFrameIndex]);
   const allRowsCompleted = checkRows.length > 0 && checkRows.every(isRowCompleted);
+  // 進捗表示用（既存の消込状態から算出。新たな判定は増やさない）
+  const totalCount = checkRows.length;
+  const completedCount = checkRows.filter(isRowCompleted).length;
 
   // 消込が成立した行を検出して、その行へ自動スクロール＋ハイライトする（要件F5）
   const prevCompletedRef = useRef<Set<string>>(new Set());
@@ -619,6 +622,16 @@ function App() {
           <section className="card">
             <div className="card-header">
               <h2 className="section-title">検査テーブル</h2>
+              {/* 進捗: 未完了は青字「完了/総数」、全行完了で緑字「検査完了」（要件3） */}
+              {totalCount > 0 ? (
+                allRowsCompleted ? (
+                  <span className="inspect-progress is-done">検査完了</span>
+                ) : (
+                  <span className="inspect-progress">
+                    {completedCount} / {totalCount}
+                  </span>
+                )
+              ) : null}
               <div className="button-row">
                 <button onClick={() => void refreshActiveSession()}>再読込</button>
                 <button

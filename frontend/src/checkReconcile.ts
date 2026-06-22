@@ -1,10 +1,13 @@
 import type { CheckDataStatus, CheckRow, OCRResult } from "./types";
 
 export function normalizeCheckText(value: unknown): string {
+  // 照合用の正規化のみ。表示値は OCR original のまま（この関数は比較時にだけ使う）。
+  // O/0 を同一視: 大文字化後、英字 O を数字 0 に寄せて両辺を一致させる（対象は O と 0 のみ）。
   return String(value ?? "")
     .trim()
     .toUpperCase()
-    .replace(/\s+/g, "");
+    .replace(/\s+/g, "")
+    .replace(/O/g, "0");
 }
 
 function getOcrText(result: OCRResult | undefined): string {

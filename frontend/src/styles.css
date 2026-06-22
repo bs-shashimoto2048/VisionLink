@@ -387,23 +387,35 @@ button:disabled {
   font-size: 1rem;
 }
 
-/* 状態表示: 映像左上の固定オーバーレイ（要件5。フローを動かさない / 揺れ防止 / 透過維持） */
+/* 状態表示: 映像左上の固定オーバーレイ（小さめ・背景は薄め＋影で可読性確保） */
 .camera-status-overlay {
   position: absolute;
   left: 8px;
   top: 8px;
   z-index: 4;
   max-width: calc(100% - 16px);
-  padding: 3px 8px;
+  padding: 2px 7px;
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.72);
+  background: rgba(15, 23, 42, 0.5);
   color: #fff;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   pointer-events: none;
+}
+
+/* 検査進捗（検査テーブル見出しと再読込の中間） */
+.inspect-progress {
+  font-weight: 800;
+  font-size: 0.95rem;
+  color: #2563eb; /* 未完了=青 */
+  white-space: nowrap;
+}
+.inspect-progress.is-done {
+  color: #16a34a; /* 全完了=緑（消込セルと同系） */
 }
 
 /* 消込確定行のハイライト（一度光って落ち着く）（要件F5） */

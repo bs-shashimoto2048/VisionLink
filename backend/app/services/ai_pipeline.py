@@ -37,6 +37,16 @@ logger = logging.getLogger(__name__)
 ROTATE_TUBE_KEYWORDS = ("tube", "tube_l", "tube_r", "left_tube", "right_tube", "tube_left", "tube_right")
 ROTATE_EXCLUDE_KEYWORDS = ("nmb", "label", "number", "terminal", "term", "no", "line")
 
+# nmb 系（中央の番号, 1〜999）は必ず数値。OCR の見間違いを数字へ寄せ、残った非数字は除去する。
+NMB_DIGIT_MAP = {
+    "I": "1", "l": "1", "|": "1",
+    "O": "0", "o": "0",
+    "S": "5", "s": "5",
+    "B": "8",
+    "Z": "2", "z": "2",
+    "G": "6", "g": "6",
+}
+
 
 DEFAULT_OCR_PREPROCESS_CONFIG: dict[str, Any] = {
     "preprocess": {
@@ -296,7 +306,11 @@ class YoloAIPipeline:
                             score = float(line[1][1]) if len(line[1]) > 1 else 0.0
                             if score >= ocr_confidence_threshold:
                                 text_parts.append(str(line[1][0]))
-                det.ocr_text = " ".join(text_parts).strip() or None
+                joined = " ".join(text_parts).strip()
+                # nmb 系は数字のみで確定（tube は対象外）
+                if joined and self._is_nmb_detection(det):
+                    joined = self._confine_nmb_text(joined)
+                det.ocr_text = joined or None
             except Exception:
                 det.ocr_text = None
         elapsed = int((perf_counter() - start) * 1000)
@@ -483,12 +497,17 @@ class YoloAIPipeline:
                     [det.x, det.y, det.width, det.height],
                     paddle_output,
                 )
+            is_nmb = self._is_nmb_detection(det)
             for text, score in self._extract_paddle_text_scores(paddle_output):
                 if not text or score < ocr_confidence_threshold:
                     continue
+                # nmb 系は数字のみで確定（tube は英数字混在のため対象外）
+                out_text = self._confine_nmb_text(text) if is_nmb else text
+                if not out_text:
+                    continue
                 results.append(
                     OCRResult(
-                        text=text,
+                        text=out_text,
                         confidence=score,
                         bbox=[det.x, det.y, det.width, det.height],
                         source="paddleocr",
@@ -586,6 +605,20 @@ class YoloAIPipeline:
         if any(token in text for token in ROTATE_EXCLUDE_KEYWORDS):
             return False
         return any(token in text for token in ROTATE_TUBE_KEYWORDS)
+
+    def _is_nmb_detection(self, detection: DetectionBox | dict[str, Any]) -> bool:
+        """nmb/label 系（中央の番号）かどうか。tube 系は対象外。"""
+        text = self._detection_text_fields(detection)
+        if not text:
+            return False
+        if any(token in text for token in ROTATE_TUBE_KEYWORDS):
+            return False
+        return any(token in text for token in ROTATE_EXCLUDE_KEYWORDS)
+
+    def _confine_nmb_text(self, text: str) -> str:
+        """nmb は必ず数値。見間違いを数字へ寄せ、残った非数字を除去して数字のみで確定する。"""
+        mapped = "".join(NMB_DIGIT_MAP.get(ch, ch) for ch in text)
+        return "".join(ch for ch in mapped if ch.isdigit())
 
     def _should_rotate_left_tube(
         self,
