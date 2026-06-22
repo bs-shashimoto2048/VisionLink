@@ -576,15 +576,40 @@ button:disabled {
 .check-data-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 520px;
+  table-layout: fixed;
 }
 
 .check-data-table th,
 .check-data-table td {
-  padding: 6px 8px;
+  padding: 4px 4px;
   border-bottom: 1px solid var(--border);
   text-align: left;
   font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 列幅配分: ✓=最小 / Tube_L・Tube_R=広め / Label=狭 / ALL=小（全カラム1行に収める） */
+.check-data-table th:nth-child(1),
+.check-data-table td:nth-child(1),
+.check-data-table th:nth-child(5),
+.check-data-table td:nth-child(5) {
+  width: 8%;
+}
+.check-data-table th:nth-child(2),
+.check-data-table td:nth-child(2),
+.check-data-table th:nth-child(4),
+.check-data-table td:nth-child(4) {
+  width: 31%;
+}
+.check-data-table th:nth-child(3),
+.check-data-table td:nth-child(3) {
+  width: 11%;
+}
+.check-data-table th:nth-child(6),
+.check-data-table td:nth-child(6) {
+  width: 11%;
 }
 
 .check-data-table thead th {
@@ -805,7 +830,7 @@ button:disabled {
 
   .check-data-table th,
   .check-data-table td {
-    padding: 4px 6px;
+    padding: 3px 3px;
     font-size: 0.7rem;
   }
 

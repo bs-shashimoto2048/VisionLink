@@ -430,12 +430,15 @@ function App() {
 
   return (
     <div className="app-shell">
+      {/* 最上部タイトル(VisionLink)とその直下の"検査"は非表示（要件2）。実質の最上部見出しは
+          下のカメラカード見出し("VisionLink")が担う。復元する場合はこのコメントを戻す。
       <header className="hero">
         <div>
           <p className="eyebrow">{TEXT.appTitle}</p>
           <h1>{TEXT.headline}</h1>
         </div>
       </header>
+      */}
 
       {banner ? <div className="banner">{banner}</div> : null}
 
@@ -462,7 +465,7 @@ function App() {
         <>
           <section className="card">
             <div className="card-header">
-              <h2>カメラ</h2>
+              <h2>VisionLink</h2>
               <div className="button-row">
                 <button onClick={() => setSettingsOpen((v) => !v)}>{settingsOpen ? "設定を閉じる" : "設定"}</button>
               </div>
