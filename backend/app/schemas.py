@@ -125,6 +125,8 @@ class OCRResult(BaseModel):
     rotation_deg: int = 0
     side: str | None = None
     role: str | None = None
+    # YOLO クラス名（例: tube / nmb / label）。フロントの左右分類(isTubeDetection)が利用する。
+    label: str | None = None
 
 
 class PerformanceMetrics(BaseModel):

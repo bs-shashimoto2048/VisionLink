@@ -494,6 +494,7 @@ class YoloAIPipeline:
                         source="paddleocr",
                         rotated=rotated,
                         rotation_deg=180 if rotated else 0,
+                        label=det.label,
                         side="left" if rotated else det.side,
                         role="tube" if rotated else det.role,
                     )

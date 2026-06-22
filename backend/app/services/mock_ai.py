@@ -55,6 +55,7 @@ def run_ocr_results(
                 confidence=max(0.5, min(0.99, box.confidence - index * 0.03)),
                 bbox=[box.x, box.y, box.width, box.height],
                 source="mock_ai",
+                label=box.label,
             )
         )
     return results

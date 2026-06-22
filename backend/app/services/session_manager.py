@@ -343,6 +343,7 @@ class SessionManager:
                         source="detection_ocr",
                         rotated=bool(det.side == "left" and det.role == "tube" and rotate_left_tube_ocr),
                         rotation_deg=180 if det.side == "left" and det.role == "tube" and rotate_left_tube_ocr else 0,
+                        label=det.label,
                         side=det.side,
                         role=det.role,
                     )
