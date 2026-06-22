@@ -522,19 +522,33 @@ button:disabled {
 }
 
 .check-data-selectors {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  /* 製番/盤番号/端子台 を常に1行・折り返し禁止（表示のみ） */
+  display: flex;
+  flex-wrap: nowrap;
   gap: 6px;
   align-items: center;
 }
 
+/* 幅配分は文字数比（製番8 : 盤番号2 : 端子台7、DOM順）。盤番号から先に詰める。 */
+.check-data-selectors select:nth-child(1) {
+  flex: 8 1 0;
+}
+.check-data-selectors select:nth-child(2) {
+  flex: 2 1 0;
+}
+.check-data-selectors select:nth-child(3) {
+  flex: 7 1 0;
+}
+
 .check-data-selectors select {
-  width: 100%;
   min-width: 0;
   border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.35rem 0.5rem;
+  padding: 0.35rem 0.4rem;
   min-height: 38px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   background: #fff;
 }
 
@@ -777,8 +791,10 @@ button:disabled {
     padding: 3px 6px;
   }
 
-  .check-data-selectors {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* スマホ: 1行維持のため文字・余白を詰める（flex/nowrap は基本指定のまま） */
+  .check-data-selectors select {
+    font-size: 12px;
+    padding: 0.3rem 0.3rem;
   }
 
   .check-table-wrap {
@@ -799,8 +815,7 @@ button:disabled {
 }
 
 @media (max-width: 380px) {
-  .camera-control-strip,
-  .check-data-selectors {
+  .camera-control-strip {
     grid-template-columns: 1fr;
   }
 
