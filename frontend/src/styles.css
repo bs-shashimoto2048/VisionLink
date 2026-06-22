@@ -581,10 +581,10 @@ button:disabled {
 
 .check-data-table th,
 .check-data-table td {
-  padding: 7px 8px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
   text-align: left;
-  font-size: 0.86rem;
+  font-size: 0.78rem;
 }
 
 .check-data-table thead th {
@@ -805,8 +805,8 @@ button:disabled {
 
   .check-data-table th,
   .check-data-table td {
-    padding: 5px 6px;
-    font-size: 0.78rem;
+    padding: 4px 6px;
+    font-size: 0.7rem;
   }
 
   .summary-box {

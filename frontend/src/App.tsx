@@ -768,41 +768,48 @@ function OverlayCanvas({
       const drawBox = (box: { x: number; y: number; width: number; height: number }, label: string, rotated = false) => {
         const { left, top, width, height } = toCanvasBox(box);
         const labelText = label.trim() || "(no text)";
-        const labelHeight = 24;
-        ctx.font = "bold 16px Segoe UI, sans-serif";
-        const labelWidth = Math.min(Math.max(ctx.measureText(labelText).width + 16, width, 130), rect.width - left);
-        const labelX = left;
+        const labelHeight = 18;
+        const labelX = left + 2;
         const labelY = top + 2;
 
-        ctx.strokeStyle = rotated ? "#a855f7" : "#fbbf24";
-        ctx.lineWidth = 3;
+        // 枠線のみ・細め・透過（映像が透ける）。回転=紫は維持。
+        ctx.strokeStyle = rotated ? "rgba(168, 85, 247, 0.85)" : "rgba(251, 191, 36, 0.85)";
+        ctx.lineWidth = 1.25;
         ctx.strokeRect(left, top, width, height);
-        ctx.fillStyle = "rgba(0, 0, 0, 0.82)";
-        ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
-        ctx.fillStyle = "#ffffff";
+
+        // 不透明な背景塗りは廃止。影で可読性だけ控えめに補助し、文字は小さめ＋透過。
+        ctx.save();
+        ctx.font = "bold 12px Segoe UI, sans-serif";
         ctx.textBaseline = "middle";
-        ctx.fillText(labelText, labelX + 8, labelY + labelHeight / 2);
+        ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+        ctx.shadowBlur = 3;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.fillText(labelText, labelX + 4, labelY + labelHeight / 2);
+        ctx.restore();
       };
 
       const drawInferenceBox = (box: { x: number; y: number; width: number; height: number }, label: string, rotated = false) => {
         const { left, top, width, height } = toCanvasBox(box);
-        ctx.strokeStyle = rotated ? "#a855f7" : "#22d3ee";
-        ctx.lineWidth = 3;
+        // 枠線のみ・細め・透過（映像が透ける）。回転=紫は維持。
+        ctx.strokeStyle = rotated ? "rgba(168, 85, 247, 0.85)" : "rgba(34, 211, 238, 0.85)";
+        ctx.lineWidth = 1.25;
         ctx.strokeRect(left, top, width, height);
 
         const labelText = label.trim();
         if (!labelText) return;
 
-        const labelHeight = 24;
-        ctx.font = "bold 14px Segoe UI, sans-serif";
-        const labelWidth = Math.min(Math.max(ctx.measureText(labelText).width + 14, 32), Math.max(32, width - 4), rect.width - left - 2);
+        const labelHeight = 18;
         const labelX = left + 2;
         const labelY = top + 2;
-        ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
-        ctx.fillRect(labelX, labelY, labelWidth, labelHeight);
-        ctx.fillStyle = "#ffffff";
+        // 不透明な背景塗りは廃止。影で可読性だけ控えめに補助し、文字は小さめ＋透過。
+        ctx.save();
+        ctx.font = "bold 11px Segoe UI, sans-serif";
         ctx.textBaseline = "middle";
-        ctx.fillText(labelText, labelX + 7, labelY + labelHeight / 2);
+        ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+        ctx.shadowBlur = 3;
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.fillText(labelText, labelX + 4, labelY + labelHeight / 2);
+        ctx.restore();
       };
 
       if (mode === "inference_result") {
