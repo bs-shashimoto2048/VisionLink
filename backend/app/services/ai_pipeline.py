@@ -346,6 +346,26 @@ class YoloAIPipeline:
             source="mock_ai",
         )
 
+    def ocr(
+        self,
+        frame_bytes: bytes,
+        target_row: InspectionRowTemplate,
+        stable_count: int,
+        frame_index: int,
+    ) -> OcrResult:
+        """安定化した対象行(target_row)に対する行OCR。session_manager の should_ocr 経路で使用。"""
+        start = perf_counter()
+        result = run_ocr(frame_bytes, target_row, stable_count, frame_index)
+        elapsed = int((perf_counter() - start) * 1000)
+        return OcrResult(
+            text=result.text,
+            confidence=result.confidence,
+            bbox=result.bbox,
+            success=result.success,
+            reason=result.reason,
+            performance=PerformanceMetrics(yolo_ms=0, ocr_ms=elapsed, total_ms=elapsed),
+        )
+
     def _ocr_results_with_paddleocr(
         self,
         frame_bytes: bytes,
@@ -776,25 +796,6 @@ def preprocess_ocr_crop(crop: Any, config: dict[str, Any] | None = None) -> tupl
     if gray.ndim == 2:
         gray = cv2.cvtColor(gray, cv2.COLOR_GRAY2RGB)
     return gray, applied
-
-    def ocr(
-        self,
-        frame_bytes: bytes,
-        target_row: InspectionRowTemplate,
-        stable_count: int,
-        frame_index: int,
-    ) -> OcrResult:
-        start = perf_counter()
-        result = run_ocr(frame_bytes, target_row, stable_count, frame_index)
-        elapsed = int((perf_counter() - start) * 1000)
-        return OcrResult(
-            text=result.text,
-            confidence=result.confidence,
-            bbox=result.bbox,
-            success=result.success,
-            reason=result.reason,
-            performance=PerformanceMetrics(yolo_ms=0, ocr_ms=elapsed, total_ms=elapsed),
-        )
 
 
 pipeline = YoloAIPipeline()

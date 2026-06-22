@@ -105,7 +105,7 @@ VisionLink/
    - `App.tsx` は `checkRows` を state 化し、フレーム毎に再消込。OverlayCanvas は `rotated` の OCR を紫(`#a855f7`)表示（既存実装）。
 
 ### 既知の未対応（別件・要相談）
-- `ai_pipeline.py` 末尾の `def ocr(...)` がモジュール関数 `preprocess_ocr_crop` 内にインデントされており、`YoloAIPipeline.ocr` メソッドとして存在しない（**be14d39 から続く既存の潜在バグ**）。`session_manager` の行 OCR 経路（`should_ocr` 時）で `pipeline.ocr()` 呼び出しが AttributeError になる恐れ。今回の修正スコープ外のため未着手。
+- ~~`ai_pipeline.py` 末尾の `def ocr(...)` が `preprocess_ocr_crop` 内にインデントされ `YoloAIPipeline.ocr` メソッドとして存在せず、行 OCR 経路（`should_ocr` 時）で AttributeError~~ → **解消**。`def ocr` をクラス内の正しいメソッドへ移設（`preprocess_ocr_crop` は不変）。`pipeline.ocr()` で `OcrResult` を返すことを確認済み。
 - ~~`session_manager.py` のフォールバック rotated 判定が tube ベースで新仕様と不整合~~ → Rotate OCR を tube ベースへ反転したため**解消**（end-to-end で tube 基準に統一）。
 
 ## コーディング / コミュニケーション規約（ユーザー共通設定より）
