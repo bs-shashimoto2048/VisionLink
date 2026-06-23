@@ -254,15 +254,18 @@ Invoke-RestMethod http://127.0.0.1:8000/api/health
 
 ### Backend
 
->仮想環境起動
+>初回(セットアップ)：
 ```powershell
 cd .\backend
 py -m venv .venv
 .venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
->サーバー起動
+>2回目以降(起動)：
 ```powershell
+cd .\backend
+.venv\Scripts\activate
 uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
