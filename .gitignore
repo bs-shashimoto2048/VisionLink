@@ -43,3 +43,6 @@ check_data/product/
 Thumbs.db
 .vscode/
 .idea/
+
+# Task notes (per-session; not part of the repo)
+TASK.md
