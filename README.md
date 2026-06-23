@@ -6,7 +6,7 @@ Frontend は React + TypeScript + Vite、Backend は FastAPI、保存先は SQLi
 ## 1. 設計方針
 
 - フロントエンドとバックエンドを分離し、将来クラウド AI サーバーへ切り替えやすい構成にしています。
-- AI 処理は `mock_ai` サービスに切り出し、YOLO / OCR の実装差し替え点を明確にしています。
+- AI 処理は `ai_pipeline` サービスで実 YOLO（ultralytics）と実 OCR（PaddleOCR）を実行します。`mock_ai` はモデル未配置・ロード失敗時のフォールバックとして残しています。
 - 判定ロジック、社内データ照合、ログ保存を個別サービスに分けています。
 - 画像フレームは一時利用のみで、永続保存しません。
 - 検査完了時は作業者確認を必須にしています。
@@ -86,7 +86,7 @@ VisionLink/
   - `operator_id`
   - `frame_index`
   - `frame` (JPEG/PNG)
-- response: YOLO モック結果、OCR 結果、判定済みテーブル、`yolo_ms` / `ocr_ms` / `total_ms`
+- response: YOLO 検出結果、OCR 結果、判定済みテーブル、`yolo_ms` / `ocr_ms` / `total_ms`
 
 ### 判定ステータス
 
@@ -197,10 +197,27 @@ npm run dev:https
 - `SecurityError`: HTTPS でない、またはブラウザ権限が不足
 - 画面上ではエラー本文に加えて `Code` と補足説明を表示します。
 
-## 6. 今後追加すべき TODO
+## 6. AI モデルの利用状況
 
-- 実 YOLO モデルの推論 API への差し替え
-- 実 OCR エンジン連携
+PoC v1 時点で、YOLO・OCR とも**実モデルを使用**しています（`backend/app/services/ai_pipeline.py`）。
+
+- **YOLO（物体検出）**: 実モデル使用。`model/yolo/TrmRead_yolo26s_20260401.pt`（チューニング済み）を ultralytics でロードし推論します。
+- **OCR（文字認識）**: 実モデル使用。PaddleOCR を実行します。
+  - 環境に PaddleOCR 3.x（`paddleocr.tools` 非提供）が入っている場合は `TextRecognition` + `model/paddleocr/en_PP-OCRv5_mobile_rec`（モバイル軽量）経路。
+  - PaddleOCR 2.x 環境では `TextRecognizer` + `model/paddleocr/en_PP-OCRv3_rec_infer`（`inference.pdmodel` / `inference.pdiparams`）経路。
+  - フロントの消し込みは `frame-analyze` の `ocr_results`（`source="paddleocr"`）を使用します。
+
+### モック / フォールバックの発動条件
+
+実モデルが使えない場合に限り `mock_ai` などへフォールバックします。
+
+- YOLO 未配置・依存未導入・ロード失敗時: `session_manager` がデモ検出（`ocr-demo-region`）を1件挿入して継続します。
+- OCR の import 失敗・モデルファイル不正・実行例外・**実 OCR 結果が空**のとき: `ocr_results` が `mock_ai`（`source="mock_ai"`、`label="mock-ocr-region"` 等の固定値）にフォールバックします。
+- 安定化後の行 OCR（`pipeline.ocr()` / `should_ocr` 経路）は現状 `mock_ai.run_ocr` のままです（消し込みには未使用）。
+
+## 7. 今後追加すべき TODO
+
+- 行 OCR（`pipeline.ocr()` / 安定化経路）の実 OCR 化（現状モック）
 - QR 読取機能の追加
 - 詳細な判定ルールの実装
 - 認証の本実装
@@ -231,9 +248,9 @@ py -3 -m venv .venv
 Invoke-RestMethod http://127.0.0.1:8000/api/health
 ```
 
-- YOLOモデル未配置時、`/api/inspection/frame-analyze` は `503` で明確なエラーを返します。
+- YOLO モデル未配置時でも、`/api/inspection/frame-analyze` は `session_manager` がデモ検出（`ocr-demo-region`）を挿入して継続します（503 にはなりません）。OCR も実行できない場合は `mock_ai` にフォールバックします。詳細は「6. AI モデルの利用状況」を参照してください。
 
-## 7. Quick Start 手順
+## 9. Quick Start 手順
 
 ### Backend
 
