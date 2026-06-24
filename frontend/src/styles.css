@@ -323,20 +323,18 @@ button:disabled {
   font-weight: 700;
 }
 
-/* 下部操作バー: [表示]/Rotate OCR/カメラ/検査 を常に1列（折り返さない）に収める（要件4） */
+/* 下部操作バー: [OCR Turn][カメラ][検査] の3つを均等幅・等間隔で1列に（要件4） */
 .camera-bottom-bar {
   margin-top: 6px;
   display: flex;
   flex-wrap: nowrap;
-  gap: 6px;
+  /* 誤操作しない程度に間隔を空ける */
+  gap: 10px;
   align-items: stretch;
 }
 .camera-bottom-bar > * {
   flex: 1 1 0;
   min-width: 0;
-}
-.camera-bottom-bar .bottom-bar-select {
-  flex: 1.25 1 0;
 }
 .camera-bottom-bar select,
 .camera-bottom-bar button {
@@ -368,7 +366,8 @@ button:disabled {
   font-size: 13px;
   font-weight: 700;
 }
-.settings-fields .settings-field input {
+.settings-fields .settings-field input,
+.settings-fields .settings-field select {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--border);
@@ -445,7 +444,8 @@ button:disabled {
 
 .video-stage {
   position: relative;
-  min-height: 260px;
+  /* 比率は実カメラ比率を inline(aspectRatio) で指定。ここはJS適用前のフォールバック。
+     min-height は実比率での高さ計算と衝突し縦が間延びするため撤去。max-height のみ安全弁。 */
   max-height: 68vh;
   max-height: 68dvh;
   background: #09111f;
@@ -463,9 +463,23 @@ button:disabled {
 }
 
 .camera-video {
-  object-fit: cover;
+  /* 撮れている範囲を切らず全部見せる（B案・全範囲化）。表示枠は実比率なので余白は出ない。 */
+  object-fit: contain;
   background: #09111f;
   z-index: 1;
+}
+
+/* 4:3 注目枠: 検査員が注視する目安。判定対象は枠外も含む全範囲（見た目のみ）。 */
+.video-focus-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border: 1.5px dashed rgba(255, 255, 255, 0.75);
+  border-radius: 6px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 2;
 }
 
 .camera-center-guide {
@@ -473,9 +487,11 @@ button:disabled {
   top: 0;
   bottom: 0;
   left: 50%;
-  width: 2px;
+  /* nmb をなぞりやすいよう明確に太く（見た目のみ・判定基準 guideX は不変）。 */
+  width: 4px;
   transform: translateX(-50%);
-  background: rgba(255, 82, 82, 0.42);
+  background: rgba(255, 56, 56, 0.85);
+  box-shadow: 0 0 6px rgba(255, 56, 56, 0.7), 0 0 0 1px rgba(0, 0, 0, 0.3);
   pointer-events: none;
   z-index: 2;
 }

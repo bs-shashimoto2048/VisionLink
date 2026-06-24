@@ -113,6 +113,20 @@ function App() {
   const [checkDataError, setCheckDataError] = useState<string | null>(null);
   const pendingLookup = useRef(false);
   const guideX = 0.5;
+  // 映像の実アスペクト比（カメラ元解像度）。撮れている範囲を切らずに全部見せるため、
+  // 表示枠の比率をこの実比率に合わせる（4:3 固定クロップをやめる）。判定基準(guideX)は不変。
+  const [videoAspect, setVideoAspect] = useState(4 / 3);
+
+  // 映像内に重ねる「4:3 注目枠」のサイズ（実比率の枠の中で 4:3 領域を中央に示す）。
+  const focusFrameStyle = useMemo(() => {
+    const target = 4 / 3;
+    if (videoAspect >= target) {
+      // 横長カメラ: 高さ100%、幅は 4:3 ぶんに絞る
+      return { width: `${(target / videoAspect) * 100}%`, height: "100%" };
+    }
+    // 縦長カメラ: 幅100%、高さを 4:3 ぶんに絞る
+    return { width: "100%", height: `${(videoAspect / target) * 100}%` };
+  }, [videoAspect]);
 
   useEffect(() => {
     const syncOnline = () => setIsOnline(navigator.onLine);
@@ -500,8 +514,23 @@ function App() {
 
             <div className="camera-grid">
               <div className="video-panel">
-                <div className="video-stage">
-                  <video ref={videoRef} className="camera-video" playsInline muted autoPlay />
+                {/* 表示枠を実カメラ比率に合わせ、撮れている範囲を切らず全部見せる（B案・全範囲化） */}
+                <div className="video-stage" style={{ aspectRatio: String(videoAspect) }}>
+                  <video
+                    ref={videoRef}
+                    className="camera-video"
+                    playsInline
+                    muted
+                    autoPlay
+                    onLoadedMetadata={(event) => {
+                      const v = event.currentTarget;
+                      if (v.videoWidth > 0 && v.videoHeight > 0) {
+                        setVideoAspect(v.videoWidth / v.videoHeight);
+                      }
+                    }}
+                  />
+                  {/* 4:3 注目枠（検査員が注視する目安）。判定対象は枠外も含む全範囲。 */}
+                  <div className="video-focus-frame" style={focusFrameStyle} aria-hidden="true" />
                   <div className="camera-center-guide" aria-hidden="true" />
                   <OverlayCanvas detections={inspection?.detections ?? []} ocrResults={overlayOcrResults} mode={overlayMode} />
                   <div className="video-badge">{cameraState.running ? "カメラ起動中" : "カメラ停止中"}</div>
@@ -515,20 +544,8 @@ function App() {
                   </div>
                 </div>
 
-                {/* 下部操作バー: [表示]セレクタ / OCR Turn / カメラ / 検査 を常に1列に収める（要件4） */}
+                {/* 下部操作バー: [OCR Turn][カメラ][検査] の3つを均等幅・等間隔で（要件4。表示切替は設定へ移動） */}
                 <div className="camera-bottom-bar">
-                  <select
-                    className="bottom-bar-select"
-                    aria-label="表示切替"
-                    value={overlayMode}
-                    onChange={(event) => setOverlayMode(event.target.value as keyof typeof OVERLAY_MODES)}
-                  >
-                    {Object.entries(OVERLAY_MODES).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
                   <button
                     className={rotateLeftTubeOcr ? "toggle-active" : ""}
                     title={rotateLeftTubeOcr ? "左側Tubeの180度回転OCRを無効にする" : "左側Tubeの180度回転OCRを有効にする"}
@@ -564,8 +581,22 @@ function App() {
                     <button onClick={() => setSettingsOpen(false)}>閉じる</button>
                   </div>
 
-                  {/* オーバーレイの中身は4調整値のみ（要件F1） */}
+                  {/* 設定の先頭に表示モード、続けて4調整値（表示モード→YOLO閾値→OCR閾値→表示FPS→識別FPS） */}
                   <div className="settings-fields">
+                    <label className="settings-field">
+                      表示モード
+                      <select
+                        aria-label="表示切替"
+                        value={overlayMode}
+                        onChange={(event) => setOverlayMode(event.target.value as keyof typeof OVERLAY_MODES)}
+                      >
+                        {Object.entries(OVERLAY_MODES).map(([value, label]) => (
+                          <option key={value} value={value}>
+                            {label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                     <label className="settings-field">
                       YOLO閾値
                       <input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} />
@@ -933,7 +964,8 @@ function CheckDataTable({
   const idleTimer = useRef<number | null>(null);
   const [suspendAutoFollow, setSuspendAutoFollow] = useState(false);
 
-  // 最若の未完了行（または全行完了時は先頭）へスクロールして寄せる（ページは動かさない: block:"nearest"）。
+  // 最若の未完了行（または全行完了時は先頭）へスクロールして寄せる（ページは動かさない）。
+  // 通常はスクロール領域の縦中央へ（block:"center"）。全完了時のみ先頭へ。
   const scrollToFocus = () => {
     const wrap = wrapRef.current;
     if (!wrap) return;
@@ -943,7 +975,7 @@ function CheckDataTable({
     if (allCompleted) {
       wrap.scrollTo({ top: 0, behavior: "smooth" });
     } else {
-      focusRowRef.current!.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      focusRowRef.current!.scrollIntoView({ block: "center", behavior: "smooth" });
     }
     // smooth スクロールの onScroll 連鎖が落ち着くまでフラグを保持してから解除する。
     if (autoScrollClearTimer.current) window.clearTimeout(autoScrollClearTimer.current);
