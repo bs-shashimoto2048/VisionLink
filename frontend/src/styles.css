@@ -162,6 +162,9 @@ button:disabled {
   padding: 14px 16px;
   background: #ffffff;
   font-weight: 700;
+  /* 没入レイアウト(固定UI z:10)より前面に出す */
+  position: relative;
+  z-index: 50;
 }
 
 .banner-detail {
@@ -386,11 +389,12 @@ button:disabled {
   font-size: 1rem;
 }
 
-/* 状態表示: 映像左上の固定オーバーレイ（小さめ・背景は薄め＋影で可読性確保） */
+/* 状態表示: 映像上の固定オーバーレイ（ヘッダー直下に出す。小さめ・背景は薄め＋影で可読性確保） */
 .camera-status-overlay {
   position: absolute;
   left: 8px;
-  top: 8px;
+  /* 前面ヘッダー(上端)と重ならないよう少し下げる */
+  top: 52px;
   z-index: 4;
   max-width: calc(100% - 16px);
   padding: 2px 7px;
@@ -442,16 +446,35 @@ button:disabled {
   100% { background: transparent; }
 }
 
-.video-stage {
-  position: relative;
-  /* 比率は実カメラ比率を inline(aspectRatio) で指定。ここはJS適用前のフォールバック。
-     min-height は実比率での高さ計算と衝突し縦が間延びするため撤去。max-height のみ安全弁。 */
-  max-height: 68vh;
-  max-height: 68dvh;
-  background: #09111f;
-  border-radius: 14px;
+/* 背景映像レイヤー: 画面全体の最下層。撮れている全範囲を contain で歪めず表示し、薄く沈める。 */
+.video-backdrop {
+  position: fixed;
+  inset: 0;
+  background: #05070d;
   overflow: hidden;
-  aspect-ratio: 4 / 3;
+  z-index: 0;
+}
+
+/* 映像を沈める暗幕: 下ほど濃く（前面の検査テーブル文字を読みやすく）。注目範囲(上部)は明るめに保つ。 */
+.video-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: linear-gradient(
+    180deg,
+    rgba(5, 7, 13, 0.16) 0%,
+    rgba(5, 7, 13, 0.08) 34%,
+    rgba(5, 7, 13, 0.42) 72%,
+    rgba(5, 7, 13, 0.62) 100%
+  );
+}
+
+/* contain 後の実映像矩形に一致させる領域（位置/サイズは JS で付与）。注目枠/ガイド/検出枠の親。 */
+.video-active-region {
+  position: absolute;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .camera-video,
@@ -463,10 +486,11 @@ button:disabled {
 }
 
 .camera-video {
-  /* 撮れている範囲を切らず全部見せる（B案・全範囲化）。表示枠は実比率なので余白は出ない。 */
+  /* 撮れている範囲を切らず全部見せる（contain）。背景として薄く沈める（やや暗く・低コントラスト）。 */
   object-fit: contain;
-  background: #09111f;
-  z-index: 1;
+  background: #05070d;
+  filter: brightness(0.64) contrast(0.95) saturate(0.92);
+  z-index: 0;
 }
 
 /* 4:3 注目枠: 検査員が注視する目安。判定対象は枠外も含む全範囲（見た目のみ）。 */
@@ -499,6 +523,76 @@ button:disabled {
 .overlay-canvas {
   pointer-events: none;
   z-index: 3;
+}
+
+/* ===== 没入レイアウト: 前面 UI レイヤー（映像の上に半透明で重ねる） ===== */
+.ui-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  /* 中間(映像)はクリック透過。操作対象(header/bar/table)だけ pointer-events を有効化。 */
+  pointer-events: none;
+}
+.ui-layer > * {
+  pointer-events: auto;
+}
+.ui-spacer {
+  flex: 1 1 auto;
+  pointer-events: none;
+}
+
+/* ヘッダー: VisionLink / 設定（半透明ダーク下地＋blur で映像上でも読める） */
+.immersive-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: rgba(8, 15, 30, 0.5);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+.immersive-header .app-title {
+  color: #fff;
+  letter-spacing: 0.04em;
+  font-size: 1.1rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.immersive-header button {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+/* 操作バー: 映像上・半透明下地。3ボタン均等は .camera-bottom-bar の規則を流用。 */
+.camera-bottom-bar.immersive-bar {
+  margin-top: 0;
+  padding: 6px;
+  border-radius: 12px;
+  background: rgba(8, 15, 30, 0.5);
+  backdrop-filter: blur(6px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+/* 検査テーブルパネル: 下半分・明るい半透明下地＋blur で文字くっきり。高さ固定で揺れ防止。 */
+.table-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 48vh;
+  max-height: 48dvh;
+  padding: 8px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.4);
+}
+.table-panel .card-header {
+  margin-bottom: 0;
 }
 
 .inference-overlay-box {
