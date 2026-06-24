@@ -444,8 +444,7 @@ button:disabled {
 
 .video-stage {
   position: relative;
-  /* 比率は実カメラ比率を inline(aspectRatio) で指定。ここはJS適用前のフォールバック。
-     min-height は実比率での高さ計算と衝突し縦が間延びするため撤去。max-height のみ安全弁。 */
+  min-height: 260px;
   max-height: 68vh;
   max-height: 68dvh;
   background: #09111f;
@@ -462,32 +461,10 @@ button:disabled {
   height: 100%;
 }
 
-/* 背景映像: 全範囲(contain)を薄く沈める（暗め・低コントラスト）。読む対象ではない背景。 */
-.camera-video-bg {
-  object-fit: contain;
-  background: #09111f;
-  filter: brightness(0.4) contrast(0.82) saturate(0.82);
-  z-index: 0;
-}
-
-/* 4:3 注目枠: 検査員が注視する主役。中に鮮明な映像(下記 focus)を入れて表示。 */
-.video-focus-frame {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  overflow: hidden;
-  border: 2px solid rgba(255, 255, 255, 0.85);
-  border-radius: 6px;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 6px 18px rgba(0, 0, 0, 0.45);
-  z-index: 1;
-}
-
-/* 中央の鮮明映像: フレーム中央4:3を cover で通常輝度表示。背景の中央4:3と同スケール＝二重像にしない。 */
-.camera-video-focus {
+.camera-video {
   object-fit: cover;
-  background: transparent;
-  z-index: 0;
+  background: #09111f;
+  z-index: 1;
 }
 
 .camera-center-guide {
@@ -495,13 +472,13 @@ button:disabled {
   top: 0;
   bottom: 0;
   left: 50%;
-  /* nmb をなぞりやすいよう さらに太く・より薄く（見た目のみ・判定基準 guideX は不変）。 */
-  width: 7px;
+  /* なぞる目印として太い帯(30px)。強めに透過して中央の nmb が帯に埋もれないようにする。
+     見た目のみ・判定基準 guideX=0.5 は不変。 */
+  width: 30px;
   transform: translateX(-50%);
-  background: rgba(255, 56, 56, 0.45);
-  box-shadow: 0 0 4px rgba(255, 56, 56, 0.3);
+  background: rgba(255, 56, 56, 0.28);
   pointer-events: none;
-  z-index: 1;
+  z-index: 2;
 }
 
 .overlay-canvas {

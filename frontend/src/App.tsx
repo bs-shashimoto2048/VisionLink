@@ -113,36 +113,6 @@ function App() {
   const [checkDataError, setCheckDataError] = useState<string | null>(null);
   const pendingLookup = useRef(false);
   const guideX = 0.5;
-  // 映像の実アスペクト比（カメラ元解像度）。撮れている範囲を切らずに全部見せるため、
-  // 表示枠の比率をこの実比率に合わせる（4:3 固定クロップをやめる）。判定基準(guideX)は不変。
-  const [videoAspect, setVideoAspect] = useState(4 / 3);
-
-  // 映像内に重ねる「4:3 注目枠」のサイズ（実比率の枠の中で 4:3 領域を中央に動的算出。比率決め打ちしない）。
-  const focusFrameStyle = useMemo(() => {
-    const target = 4 / 3;
-    if (videoAspect >= target) {
-      // 横長カメラ: 高さ100%、幅は 4:3 ぶんに絞る
-      return { width: `${(target / videoAspect) * 100}%`, height: "100%" };
-    }
-    // 縦長カメラ: 幅100%、高さを 4:3 ぶんに絞る
-    return { width: "100%", height: `${(videoAspect / target) * 100}%` };
-  }, [videoAspect]);
-
-  // 鮮明注目枠用の2つ目の video。背景 video(videoRef) と同一 MediaStream を共有する（二重像にしない）。
-  const focusVideoRef = useRef<HTMLVideoElement | null>(null);
-  useEffect(() => {
-    const focus = focusVideoRef.current;
-    if (!focus) return;
-    const src = (videoRef.current?.srcObject ?? null) as MediaStream | null;
-    if (focus.srcObject !== src) {
-      focus.srcObject = src;
-    }
-    if (src) {
-      // 確実に再生開始（autoplay が走らない端末向けの保険）。
-      void focus.play().catch(() => undefined);
-    }
-    // カメラ起動/停止/切替・再接続で再同期する。
-  }, [cameraState.running, cameraState.activeDeviceId, operator]);
 
   useEffect(() => {
     const syncOnline = () => setIsOnline(navigator.onLine);
@@ -530,34 +500,10 @@ function App() {
 
             <div className="camera-grid">
               <div className="video-panel">
-                {/* 映像エリア: 比率＝カメラ実比率。背景に枠外薄映像、中央に鮮明4:3注目枠を重ねる。 */}
-                <div className="video-stage" style={{ aspectRatio: String(videoAspect) }}>
-                  {/* 背景: 全範囲(contain)を薄く沈めて表示（枠外も映っていると示すための背景。読む対象ではない）。 */}
-                  <video
-                    ref={videoRef}
-                    className="camera-video camera-video-bg"
-                    playsInline
-                    muted
-                    autoPlay
-                    onLoadedMetadata={(event) => {
-                      const v = event.currentTarget;
-                      if (v.videoWidth > 0 && v.videoHeight > 0) {
-                        setVideoAspect(v.videoWidth / v.videoHeight);
-                      }
-                    }}
-                  />
-                  {/* 中央: 同一ストリームを共有する鮮明な 4:3 注目枠（背景の中央4:3とピタリ一致＝二重像にしない）。 */}
-                  <div className="video-focus-frame" style={focusFrameStyle}>
-                    <video
-                      ref={focusVideoRef}
-                      className="camera-video camera-video-focus"
-                      playsInline
-                      muted
-                      autoPlay
-                    />
-                    <div className="camera-center-guide" aria-hidden="true" />
-                  </div>
-                  {/* 検出/OCR: 映像エリア全体(全フレーム基準)に正規化 bbox を整合 */}
+                {/* 映像エリア: 4:3・cover（左右クロップ表示）。単一 video。 */}
+                <div className="video-stage">
+                  <video ref={videoRef} className="camera-video" playsInline muted autoPlay />
+                  <div className="camera-center-guide" aria-hidden="true" />
                   <OverlayCanvas detections={inspection?.detections ?? []} ocrResults={overlayOcrResults} mode={overlayMode} />
                   <div className="video-badge">{cameraState.running ? "カメラ起動中" : "カメラ停止中"}</div>
                   <div className="video-badge video-badge-right">検出: {inspection?.detections.length ?? 0}</div>
