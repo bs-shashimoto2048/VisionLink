@@ -117,7 +117,7 @@ function App() {
   // 表示枠の比率をこの実比率に合わせる（4:3 固定クロップをやめる）。判定基準(guideX)は不変。
   const [videoAspect, setVideoAspect] = useState(4 / 3);
 
-  // 映像内に重ねる「4:3 注目枠」のサイズ（実映像矩形＝activeRegion の中で 4:3 領域を中央に示す）。
+  // 映像内に重ねる「4:3 注目枠」のサイズ（実比率の枠の中で 4:3 領域を中央に動的算出。比率決め打ちしない）。
   const focusFrameStyle = useMemo(() => {
     const target = 4 / 3;
     if (videoAspect >= target) {
@@ -128,40 +128,21 @@ function App() {
     return { width: "100%", height: `${(videoAspect / target) * 100}%` };
   }, [videoAspect]);
 
-  // 背景映像レイヤー(画面全体)のサイズを監視し、object-fit:contain 後の「実映像矩形」を算出する。
-  // この矩形に注目枠/ガイド/検出枠を一致させることで、正規化 bbox(0..1) を 1:1 で重ねられる。
-  const backdropRef = useRef<HTMLDivElement | null>(null);
-  const [backdropSize, setBackdropSize] = useState({ width: 0, height: 0 });
+  // 鮮明注目枠用の2つ目の video。背景 video(videoRef) と同一 MediaStream を共有する（二重像にしない）。
+  const focusVideoRef = useRef<HTMLVideoElement | null>(null);
   useEffect(() => {
-    if (!operator) return;
-    const el = backdropRef.current;
-    if (!el) return;
-    const update = () => setBackdropSize({ width: el.clientWidth, height: el.clientHeight });
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [operator]);
-
-  const activeRegion = useMemo(() => {
-    const { width: bw, height: bh } = backdropSize;
-    if (bw <= 0 || bh <= 0 || videoAspect <= 0) return { left: 0, top: 0, width: bw, height: bh };
-    const backdropAspect = bw / bh;
-    if (videoAspect > backdropAspect) {
-      // 横に余白なし・上下レターボックス: 幅いっぱい、高さを比率で算出
-      const h = bw / videoAspect;
-      return { left: 0, top: (bh - h) / 2, width: bw, height: h };
+    const focus = focusVideoRef.current;
+    if (!focus) return;
+    const src = (videoRef.current?.srcObject ?? null) as MediaStream | null;
+    if (focus.srcObject !== src) {
+      focus.srcObject = src;
     }
-    // 縦に余白なし・左右レターボックス: 高さいっぱい、幅を比率で算出
-    const w = bh * videoAspect;
-    return { left: (bw - w) / 2, top: 0, width: w, height: bh };
-  }, [backdropSize, videoAspect]);
-  const activeRegionStyle = {
-    left: `${activeRegion.left}px`,
-    top: `${activeRegion.top}px`,
-    width: `${activeRegion.width}px`,
-    height: `${activeRegion.height}px`,
-  };
+    if (src) {
+      // 確実に再生開始（autoplay が走らない端末向けの保険）。
+      void focus.play().catch(() => undefined);
+    }
+    // カメラ起動/停止/切替・再接続で再同期する。
+  }, [cameraState.running, cameraState.activeDeviceId, operator]);
 
   useEffect(() => {
     const syncOnline = () => setIsOnline(navigator.onLine);
@@ -539,149 +520,86 @@ function App() {
         </section>
       ) : (
         <>
-          {/* 背景映像レイヤー（最下層・画面全体）。全範囲を contain で歪めず表示し、薄く沈める。 */}
-          <div className="video-backdrop" ref={backdropRef}>
-            <video
-              ref={videoRef}
-              className="camera-video"
-              playsInline
-              muted
-              autoPlay
-              onLoadedMetadata={(event) => {
-                const v = event.currentTarget;
-                if (v.videoWidth > 0 && v.videoHeight > 0) {
-                  setVideoAspect(v.videoWidth / v.videoHeight);
-                }
-              }}
-            />
-            {/* 映像を沈める暗幕（下ほど濃く。前面 UI の文字を読みやすく） */}
-            <div className="video-scrim" aria-hidden="true" />
-            {/* contain 後の実映像矩形に一致させた領域。注目枠/ガイド/検出枠はこの中＝正規化 bbox が 1:1 で整合 */}
-            <div className="video-active-region" style={activeRegionStyle}>
-              {/* 4:3 注目枠（検査員が注視する目安）。判定対象は枠外含む全範囲。 */}
-              <div className="video-focus-frame" style={focusFrameStyle} aria-hidden="true" />
-              <div className="camera-center-guide" aria-hidden="true" />
-              <OverlayCanvas
-                detections={inspection?.detections ?? []}
-                ocrResults={overlayOcrResults}
-                mode={overlayMode}
-                regionWidth={activeRegion.width}
-                regionHeight={activeRegion.height}
-              />
-            </div>
-            {/* 状態表示（ヘッダー直下・映像上）。検出数もここに統合（前面UIに隠れないように） */}
-            <div className="camera-status-overlay">
-              {sessionStatusLabel(inspection?.status)} ・ 通信{isOnline ? "ON" : "OFF"} ・ 検出 {inspection?.detections.length ?? 0} ・{" "}
-              {inspection
-                ? `推論 ${inspection.performance.yolo_ms}ms / OCR ${inspection.performance.ocr_ms}ms`
-                : "推論 —"}
-            </div>
-          </div>
-
-          {/* 前面 UI レイヤー（映像の上に半透明で重ねる。pointer-events は子のみ有効） */}
-          <div className="ui-layer">
-            <header className="immersive-header">
+          <section className="card">
+            <div className="card-header">
               <h2 className="app-title">VisionLink</h2>
-              <button onClick={() => setSettingsOpen((v) => !v)}>{settingsOpen ? "設定を閉じる" : "設定"}</button>
-            </header>
-
-            <div className="ui-spacer" />
-
-            {/* 操作バー: [OCR Turn][カメラ][検査]（映像上・半透明下地・均等幅） */}
-            <div className="camera-bottom-bar immersive-bar">
-              <button
-                className={rotateLeftTubeOcr ? "toggle-active" : ""}
-                title={rotateLeftTubeOcr ? "左側Tubeの180度回転OCRを無効にする" : "左側Tubeの180度回転OCRを有効にする"}
-                aria-label={rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
-                onClick={() => setRotateLeftTubeOcr((value) => !value)}
-              >
-                {rotateLeftTubeOcr ? "OCR Turn ON" : "OCR Turn OFF"}
-              </button>
-              <button
-                onClick={cameraState.running ? stopCamera : startCamera}
-                disabled={!isCheckTableReady && !cameraState.running}
-                title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
-              >
-                {cameraState.running ? "カメラ停止" : "カメラ開始"}
-              </button>
-              <button
-                className={inspectionRunning ? "danger" : "primary"}
-                onClick={() => void (inspectionRunning ? handleStopInspection() : handleStartInspection())}
-                disabled={!isCheckTableReady && !inspectionRunning}
-                title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
-              >
-                {inspectionRunning ? "検査停止" : "検査開始"}
-              </button>
+              <div className="button-row">
+                <button onClick={() => setSettingsOpen((v) => !v)}>{settingsOpen ? "設定を閉じる" : "設定"}</button>
+              </div>
             </div>
 
-            {/* 検査テーブル（下半分・半透明下地・文字くっきり） */}
-            <section className="table-panel">
-              <div className="card-header">
-                <h2 className="section-title">検査テーブル</h2>
-                {/* 進捗: 未完了は青字「完了/総数」、全行完了で緑字「検査完了」 */}
-                {totalCount > 0 ? (
-                  allRowsCompleted ? (
-                    <span className="inspect-progress is-done">検査完了</span>
-                  ) : (
-                    <span className="inspect-progress">
-                      {completedCount} / {totalCount}
-                    </span>
-                  )
-                ) : null}
-                <div className="button-row">
-                  <button onClick={() => void refreshActiveSession()}>再読込</button>
+            <div className="camera-grid">
+              <div className="video-panel">
+                {/* 映像エリア: 比率＝カメラ実比率。背景に枠外薄映像、中央に鮮明4:3注目枠を重ねる。 */}
+                <div className="video-stage" style={{ aspectRatio: String(videoAspect) }}>
+                  {/* 背景: 全範囲(contain)を薄く沈めて表示（枠外も映っていると示すための背景。読む対象ではない）。 */}
+                  <video
+                    ref={videoRef}
+                    className="camera-video camera-video-bg"
+                    playsInline
+                    muted
+                    autoPlay
+                    onLoadedMetadata={(event) => {
+                      const v = event.currentTarget;
+                      if (v.videoWidth > 0 && v.videoHeight > 0) {
+                        setVideoAspect(v.videoWidth / v.videoHeight);
+                      }
+                    }}
+                  />
+                  {/* 中央: 同一ストリームを共有する鮮明な 4:3 注目枠（背景の中央4:3とピタリ一致＝二重像にしない）。 */}
+                  <div className="video-focus-frame" style={focusFrameStyle}>
+                    <video
+                      ref={focusVideoRef}
+                      className="camera-video camera-video-focus"
+                      playsInline
+                      muted
+                      autoPlay
+                    />
+                    <div className="camera-center-guide" aria-hidden="true" />
+                  </div>
+                  {/* 検出/OCR: 映像エリア全体(全フレーム基準)に正規化 bbox を整合 */}
+                  <OverlayCanvas detections={inspection?.detections ?? []} ocrResults={overlayOcrResults} mode={overlayMode} />
+                  <div className="video-badge">{cameraState.running ? "カメラ起動中" : "カメラ停止中"}</div>
+                  <div className="video-badge video-badge-right">検出: {inspection?.detections.length ?? 0}</div>
+                  {/* 状態表示は映像内の固定オーバーレイ（左上）。略号をやめ読んで分かる表記に（要件5） */}
+                  <div className="camera-status-overlay">
+                    {sessionStatusLabel(inspection?.status)} ・ 通信{isOnline ? "ON" : "OFF"} ・{" "}
+                    {inspection
+                      ? `推論 ${inspection.performance.yolo_ms}ms / OCR ${inspection.performance.ocr_ms}ms`
+                      : "推論 —"}
+                  </div>
+                </div>
+
+                {/* 下部操作バー: [OCR Turn][カメラ][検査] の3つを均等幅・等間隔で（要件4。表示切替は設定へ移動） */}
+                <div className="camera-bottom-bar">
                   <button
-                    className="primary"
-                    onClick={() => void handleComplete()}
-                    disabled={!isCheckTableReady || !inspectionRunning || !allRowsCompleted || !workerConfirmed}
-                    title={!allRowsCompleted ? "すべての行の照合完了後に完了できます" : !workerConfirmed ? "作業者確認が必要です" : undefined}
+                    className={rotateLeftTubeOcr ? "toggle-active" : ""}
+                    title={rotateLeftTubeOcr ? "左側Tubeの180度回転OCRを無効にする" : "左側Tubeの180度回転OCRを有効にする"}
+                    aria-label={rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
+                    onClick={() => setRotateLeftTubeOcr((value) => !value)}
                   >
-                    {TEXT.checkComplete}
+                    {rotateLeftTubeOcr ? "OCR Turn ON" : "OCR Turn OFF"}
+                  </button>
+                  <button
+                    onClick={cameraState.running ? stopCamera : startCamera}
+                    disabled={!isCheckTableReady && !cameraState.running}
+                    title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
+                  >
+                    {cameraState.running ? "カメラ停止" : "カメラ開始"}
+                  </button>
+                  <button
+                    className={inspectionRunning ? "danger" : "primary"}
+                    onClick={() => void (inspectionRunning ? handleStopInspection() : handleStartInspection())}
+                    disabled={!isCheckTableReady && !inspectionRunning}
+                    title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
+                  >
+                    {inspectionRunning ? "検査停止" : "検査開始"}
                   </button>
                 </div>
               </div>
+            </div>
 
-              <div className="check-data-selectors">
-                <select value={selectedSerial} onChange={(event) => setSelectedSerial(event.target.value)}>
-                  <option value="">製番</option>
-                  {serials.map((serial) => (
-                    <option key={serial} value={serial}>
-                      {serial}
-                    </option>
-                  ))}
-                </select>
-                <select value={selectedBoard} onChange={(event) => setSelectedBoard(event.target.value)} disabled={!selectedSerial}>
-                  <option value="">盤番号</option>
-                  {boards.map((board) => (
-                    <option key={board} value={board}>
-                      {board}
-                    </option>
-                  ))}
-                </select>
-                <select value={selectedTerminal} onChange={(event) => setSelectedTerminal(event.target.value)} disabled={!selectedBoard}>
-                  <option value="">端子台</option>
-                  {terminals.map((terminal) => (
-                    <option key={terminal} value={terminal}>
-                      {terminal}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
-              {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
-              <CheckDataTable rows={checkRows} highlightKey={highlightKey} focusKey={focusKey} allCompleted={allRowsCompleted} />
-
-              <div className="button-row wrap">
-                <label className="checkbox">
-                  <input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!isCheckTableReady || !allRowsCompleted} />
-                  {TEXT.workerConfirmed}
-                </label>
-              </div>
-            </section>
-          </div>
-
-          {settingsOpen ? (
+            {settingsOpen ? (
               <div className="settings-modal-backdrop" onClick={() => setSettingsOpen(false)}>
                 <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
                   <div className="settings-modal-header">
@@ -764,6 +682,90 @@ function App() {
                 </span>
               </div>
             ) : null}
+          </section>
+
+          <section className="card">
+            <div className="card-header">
+              <h2 className="section-title">検査テーブル</h2>
+              {/* 進捗: 未完了は青字「完了/総数」、全行完了で緑字「検査完了」（要件3） */}
+              {totalCount > 0 ? (
+                allRowsCompleted ? (
+                  <span className="inspect-progress is-done">検査完了</span>
+                ) : (
+                  <span className="inspect-progress">
+                    {completedCount} / {totalCount}
+                  </span>
+                )
+              ) : null}
+              <div className="button-row">
+                <button onClick={() => void refreshActiveSession()}>再読込</button>
+                <button
+                  className="primary"
+                  onClick={() => void handleComplete()}
+                  disabled={!isCheckTableReady || !inspectionRunning || !allRowsCompleted || !workerConfirmed}
+                  title={!allRowsCompleted ? "すべての行の照合完了後に完了できます" : !workerConfirmed ? "作業者確認が必要です" : undefined}
+                >
+                  {TEXT.checkComplete}
+                </button>
+              </div>
+            </div>
+
+            <div className="check-data-selectors">
+              <select value={selectedSerial} onChange={(event) => setSelectedSerial(event.target.value)}>
+                <option value="">製番</option>
+                {serials.map((serial) => (
+                  <option key={serial} value={serial}>
+                    {serial}
+                  </option>
+                ))}
+              </select>
+              <select value={selectedBoard} onChange={(event) => setSelectedBoard(event.target.value)} disabled={!selectedSerial}>
+                <option value="">盤番号</option>
+                {boards.map((board) => (
+                  <option key={board} value={board}>
+                    {board}
+                  </option>
+                ))}
+              </select>
+              <select value={selectedTerminal} onChange={(event) => setSelectedTerminal(event.target.value)} disabled={!selectedBoard}>
+                <option value="">端子台</option>
+                {terminals.map((terminal) => (
+                  <option key={terminal} value={terminal}>
+                    {terminal}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
+            {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
+            <CheckDataTable rows={checkRows} highlightKey={highlightKey} focusKey={focusKey} allCompleted={allRowsCompleted} />
+
+            <div className="button-row wrap">
+              <label className="checkbox">
+                <input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!isCheckTableReady || !allRowsCompleted} />
+                {TEXT.workerConfirmed}
+              </label>
+            </div>
+
+            {/* OK/NG/Pending サマリー（集計は維持・表示のみ停止） */}
+            {SHOW_STATUS_PANELS ? (
+              <div className="summary-grid">
+                <div className="summary-box">
+                  <span>OK</span>
+                  <strong>{inspection?.summary?.ok_count ?? 0}</strong>
+                </div>
+                <div className="summary-box">
+                  <span>NG</span>
+                  <strong>{inspection?.summary?.ng_count ?? 0}</strong>
+                </div>
+                <div className="summary-box">
+                  <span>Pending</span>
+                  <strong>{inspection?.summary?.pending_count ?? 0}</strong>
+                </div>
+              </div>
+            ) : null}
+          </section>
         </>
       )}
 
@@ -786,14 +788,10 @@ function OverlayCanvas({
   detections,
   ocrResults,
   mode,
-  regionWidth,
-  regionHeight,
 }: {
   detections: { label: string; confidence: number; x: number; y: number; width: number; height: number; ocr_text?: string | null }[];
   ocrResults: OCRResult[];
   mode: "series_conf" | "raw" | "ocr_result" | "inference_result";
-  regionWidth?: number;
-  regionHeight?: number;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -803,11 +801,7 @@ function OverlayCanvas({
       if (!canvas) return;
       const parent = canvas.parentElement;
       if (!parent) return;
-      // 親(=実映像矩形 activeRegion)のサイズへ写像する。明示寸法があればそれを優先（再描画の決定性確保）。
-      const rect =
-        regionWidth && regionHeight
-          ? { width: regionWidth, height: regionHeight }
-          : parent.getBoundingClientRect();
+      const rect = parent.getBoundingClientRect();
       const ratio = window.devicePixelRatio || 1;
       canvas.width = rect.width * ratio;
       canvas.height = rect.height * ratio;
@@ -958,7 +952,7 @@ function OverlayCanvas({
     draw();
     window.addEventListener("resize", draw);
     return () => window.removeEventListener("resize", draw);
-  }, [detections, ocrResults, mode, regionWidth, regionHeight]);
+  }, [detections, ocrResults, mode]);
 
   return <canvas ref={canvasRef} className="overlay-canvas" />;
 }
