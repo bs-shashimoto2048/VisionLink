@@ -162,6 +162,23 @@ button:disabled {
   padding: 14px 16px;
   background: #ffffff;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.banner-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.banner-close {
+  flex: 0 0 auto;
+  min-height: 28px;
+  min-width: 28px;
+  padding: 0 8px;
+  line-height: 1;
+  font-size: 18px;
+  font-weight: 800;
+  border-radius: 8px;
 }
 
 .banner-detail {

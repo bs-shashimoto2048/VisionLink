@@ -114,6 +114,22 @@ function App() {
   const pendingLookup = useRef(false);
   const guideX = 0.5;
 
+  // バナーの自動消去: 通常通知は短め(2s)、エラー(対処が要るもの)は少し長め(5s)。×で即時消去。
+  // ※「出っぱなし」防止のための解除処理。通信状態・進捗など他の表示には影響しない。
+  const bannerTimer = useRef<number | null>(null);
+  const showBanner = (text: string, opts?: { error?: boolean }) => {
+    setBanner(text);
+    if (bannerTimer.current) window.clearTimeout(bannerTimer.current);
+    bannerTimer.current = window.setTimeout(() => setBanner(null), opts?.error ? 5000 : 2000);
+  };
+  const dismissBanner = () => {
+    if (bannerTimer.current) window.clearTimeout(bannerTimer.current);
+    setBanner(null);
+  };
+  useEffect(() => () => {
+    if (bannerTimer.current) window.clearTimeout(bannerTimer.current);
+  }, []);
+
   useEffect(() => {
     const syncOnline = () => setIsOnline(navigator.onLine);
     window.addEventListener("online", syncOnline);
@@ -232,9 +248,9 @@ function App() {
         setInspection(response);
       } catch (error) {
         if (error instanceof ApiError && error.status === 503) {
-          setBanner(`AI unavailable: ${error.message}`);
+          showBanner(`AI unavailable: ${error.message}`, { error: true });
         } else {
-          setBanner(error instanceof Error ? error.message : "Frame upload failed");
+          showBanner(error instanceof Error ? error.message : "Frame upload failed", { error: true });
         }
       }
     },
@@ -368,7 +384,7 @@ function App() {
     const response = await login(loginForm.employeeId);
     setOperator(response);
     window.localStorage.setItem("visionlink-operator", JSON.stringify(response));
-    setBanner("ログインしました");
+    showBanner("ログインしました");
   }
 
   async function handleStartInspection() {
@@ -392,14 +408,14 @@ function App() {
     if (!operator || !inspection) return;
     const response = await pauseInspection({ sessionId: inspection.session_id, employeeId: operator.operator_id });
     setInspection(response);
-    setBanner("検査を停止しました");
+    showBanner("検査を停止しました");
   }
 
   async function handleResumeSession() {
     if (!operator || !inspection) return;
     const response = await resumeInspection({ sessionId: inspection.session_id, employeeId: operator.operator_id });
     setInspection(response);
-    setBanner("検査を再開しました");
+    showBanner("検査を再開しました");
   }
 
   async function handleAbortInspection() {
@@ -408,7 +424,7 @@ function App() {
     setInspection(response);
     stopCamera();
     window.localStorage.removeItem("visionlink-session");
-    setBanner("検査を中止しました");
+    showBanner("検査を中止しました");
   }
 
   async function handleLookup() {
@@ -430,7 +446,7 @@ function App() {
   async function handleComplete() {
     if (!operator || !inspection) return;
     if (!workerConfirmed) {
-      setBanner("完了前に作業者確認が必要です");
+      showBanner("完了前に作業者確認が必要です", { error: true });
       return;
     }
     const response = await completeInspection({
@@ -441,7 +457,7 @@ function App() {
     setInspection(response);
     stopCamera();
     window.localStorage.removeItem("visionlink-session");
-    setBanner("検査を完了しました");
+    showBanner("検査を完了しました");
   }
 
   function handleLogout() {
@@ -467,7 +483,14 @@ function App() {
       </header>
       */}
 
-      {banner ? <div className="banner">{banner}</div> : null}
+      {banner ? (
+        <div className="banner">
+          <span className="banner-text">{banner}</span>
+          <button type="button" className="banner-close" aria-label="閉じる" onClick={dismissBanner}>
+            ×
+          </button>
+        </div>
+      ) : null}
 
       {!operator ? (
         <section className="card">
