@@ -306,7 +306,7 @@ function App() {
   const totalCount = checkRows.length;
   const completedCount = checkRows.filter(isRowCompleted).length;
 
-  // 消込が成立した行を検出して、その行へ自動スクロール＋ハイライトする（要件F5）
+  // 消込が成立した行のハイライト演出（完了の実感は演出で出す。フォーカスの主役ではない）。
   const prevCompletedRef = useRef<Set<string>>(new Set());
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
   useEffect(() => {
@@ -322,6 +322,14 @@ function App() {
     });
     prevCompletedRef.current = next;
     if (newlyCompleted) setHighlightKey(newlyCompleted);
+  }, [checkRows]);
+
+  // フォーカスの定位置 ＝ 常に「最若の未完了行」。並びはテーブル表示順（配列の先頭側）を優先。
+  // 全行完了時は -1（先頭へ戻す + 完了演出を出すための合図）。
+  const focusKey = useMemo(() => {
+    const index = checkRows.findIndex((row) => !isRowCompleted(row));
+    if (index < 0) return null; // 全行完了
+    return rowKey(checkRows[index], index);
   }, [checkRows]);
 
   useEffect(() => {
@@ -674,7 +682,7 @@ function App() {
 
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
             {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
-            <CheckDataTable rows={checkRows} highlightKey={highlightKey} />
+            <CheckDataTable rows={checkRows} highlightKey={highlightKey} focusKey={focusKey} allCompleted={allRowsCompleted} />
 
             <div className="button-row wrap">
               <label className="checkbox">
@@ -904,19 +912,72 @@ function allStatusLabel(status?: "PENDING" | "OK" | "NG") {
   return "";
 }
 
-function CheckDataTable({ rows, highlightKey }: { rows: CheckRow[]; highlightKey?: string | null }) {
-  const highlightRowRef = useRef<HTMLTableRowElement | null>(null);
+function CheckDataTable({
+  rows,
+  highlightKey,
+  focusKey,
+  allCompleted,
+}: {
+  rows: CheckRow[];
+  highlightKey?: string | null;
+  focusKey?: string | null;
+  allCompleted?: boolean;
+}) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const focusRowRef = useRef<HTMLTableRowElement | null>(null);
+  // 自動スクロール実行中フラグ: scrollIntoView 自身が onScroll を発火させるため、
+  // その間の scroll は手動と誤判定しない（ユーザー由来の scroll だけを拾う）。
+  const autoScrollingRef = useRef(false);
+  const autoScrollClearTimer = useRef<number | null>(null);
+  // 手動スクロール後の無操作タイマー。満了で最若の未完了行へ復帰する。
+  const idleTimer = useRef<number | null>(null);
+  const [suspendAutoFollow, setSuspendAutoFollow] = useState(false);
 
-  // 消込で確定した行をスクロール領域内で可視位置へ寄せる（ページは動かさない: block:"nearest"）
+  // 最若の未完了行（または全行完了時は先頭）へスクロールして寄せる（ページは動かさない: block:"nearest"）。
+  const scrollToFocus = () => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    // 全行完了 → 先頭へ。未完了あり → 最若未完了行へ。対象が無ければ何もしない。
+    if (!allCompleted && !focusRowRef.current) return;
+    autoScrollingRef.current = true; // この後の onScroll を「自動」と判定させる
+    if (allCompleted) {
+      wrap.scrollTo({ top: 0, behavior: "smooth" });
+    } else {
+      focusRowRef.current!.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    // smooth スクロールの onScroll 連鎖が落ち着くまでフラグを保持してから解除する。
+    if (autoScrollClearTimer.current) window.clearTimeout(autoScrollClearTimer.current);
+    autoScrollClearTimer.current = window.setTimeout(() => {
+      autoScrollingRef.current = false;
+    }, 600);
+  };
+
+  // フォーカス対象（最若未完了行 / 全完了）が変わったら自動追従。ただし手動スクロール中は保留。
   useEffect(() => {
-    if (!highlightKey) return;
-    const rowEl = highlightRowRef.current;
-    if (!rowEl) return;
-    rowEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }, [highlightKey]);
+    if (suspendAutoFollow) return;
+    scrollToFocus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusKey, allCompleted, suspendAutoFollow]);
+
+  // ユーザー由来の scroll を検知して自動追従を一時停止。無操作が続いたら最若未完了行へ復帰。
+  const handleScroll = () => {
+    if (autoScrollingRef.current) return; // 自動スクロール由来は無視
+    setSuspendAutoFollow(true);
+    if (idleTimer.current) window.clearTimeout(idleTimer.current);
+    idleTimer.current = window.setTimeout(() => {
+      setSuspendAutoFollow(false); // 復帰 → useEffect が最若未完了行へ戻す
+    }, 700);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (idleTimer.current) window.clearTimeout(idleTimer.current);
+      if (autoScrollClearTimer.current) window.clearTimeout(autoScrollClearTimer.current);
+    };
+  }, []);
 
   return (
-    <div className="check-table-wrap">
+    <div className="check-table-wrap" ref={wrapRef} onScroll={handleScroll}>
       <table className="check-data-table">
         <thead>
           <tr>
@@ -931,10 +992,11 @@ function CheckDataTable({ rows, highlightKey }: { rows: CheckRow[]; highlightKey
             const key = rowKey(row, index);
             const completed = isRowCompleted(row);
             const isHighlight = key === highlightKey;
+            const isFocus = key === focusKey; // 最若の未完了行（フォーカスの定位置）
             return (
               <tr
                 key={key}
-                ref={isHighlight ? highlightRowRef : undefined}
+                ref={isFocus ? focusRowRef : undefined}
                 className={`${completed ? "check-row-completed" : ""}${isHighlight ? " check-row-flash" : ""}`}
               >
                 <td className={row.tube_l_status === "OK" ? "check-cell-ok" : ""}>{row.tube_l}</td>

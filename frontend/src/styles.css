@@ -416,6 +416,22 @@ button:disabled {
 }
 .inspect-progress.is-done {
   color: #16a34a; /* 全完了=緑（消込セルと同系） */
+  /* 全行完了時に軽く光らせる演出（表示された時点で1回）。 */
+  animation: done-glow 1.4s ease-out 1;
+}
+@keyframes done-glow {
+  0% {
+    text-shadow: 0 0 0 rgba(22, 163, 74, 0);
+    transform: scale(1);
+  }
+  35% {
+    text-shadow: 0 0 10px rgba(22, 163, 74, 0.85);
+    transform: scale(1.08);
+  }
+  100% {
+    text-shadow: 0 0 0 rgba(22, 163, 74, 0);
+    transform: scale(1);
+  }
 }
 
 /* 消込確定行のハイライト（一度光って落ち着く）（要件F5） */
