@@ -1,11 +1,15 @@
-fastapi
-uvicorn
-python-multipart
-pydantic
-cryptography
-ultralytics
-pillow
-numpy<2
-paddleocr==2.7.3
-paddlepaddle==2.6.2
-setuptools
+# Web framework
+fastapi==0.136.1
+uvicorn==0.46.0
+python-multipart==0.0.27
+pydantic==2.13.4
+cryptography==48.0.0
+setuptools==81.0.0
+
+# AI stack（バージョン感度が高いので厳密ピン）
+numpy==2.3.5
+ultralytics==8.4.47
+pillow==12.2.0
+paddleocr==3.5.0
+paddlepaddle==3.0.0
+opencv-contrib-python==4.10.0.84
