@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ApiError,
   abortInspection,
@@ -568,7 +569,7 @@ function App() {
               </div>
             </div>
 
-            {settingsOpen ? (
+            {settingsOpen ? createPortal(
               <div className="settings-modal-backdrop" onClick={() => setSettingsOpen(false)}>
                 <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
                   <div className="settings-modal-header">
@@ -640,7 +641,8 @@ function App() {
                     </>
                   ) : null}
                 </div>
-              </div>
+              </div>,
+              document.body
             ) : null}
 
             {lookupPreview ? (
