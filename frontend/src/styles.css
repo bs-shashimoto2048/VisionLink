@@ -181,25 +181,6 @@ button:disabled {
   border-radius: 8px;
 }
 
-.banner-detail {
-  margin-top: 8px;
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-size: 0.95rem;
-}
-
-.banner-warn {
-  border-color: rgba(180, 83, 9, 0.35);
-  color: var(--warn);
-}
-
-.banner-soft {
-  border-color: rgba(15, 118, 110, 0.35);
-  color: var(--brand);
-}
-
 .card {
   padding: 8px;
   margin-bottom: 6px;
@@ -288,58 +269,6 @@ button:disabled {
 .video-panel {
   min-width: 0;
 }
-.camera-inline-status {
-  margin-top: 4px;
-  font-size: 10px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.camera-control-strip {
-  margin-top: 4px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
-  gap: 6px;
-  align-items: end;
-}
-.camera-control-strip label {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-  font-size: 10px;
-  font-weight: 700;
-}
-.camera-control-strip input,
-.camera-control-strip select,
-.camera-control-strip button,
-.overlay-mode-control select {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.35rem 0.45rem;
-  min-height: 38px;
-}
-
-.camera-control-strip button {
-  white-space: nowrap;
-}
-
-.camera-control-strip button.toggle-active {
-  background: linear-gradient(180deg, #7c3aed, #5b21b6);
-  color: #fff;
-  border-color: transparent;
-}
-
-.overlay-mode-control {
-  margin-top: 6px;
-  display: grid;
-  gap: 3px;
-  font-size: 10px;
-  font-weight: 700;
-}
-
 /* 下部操作バー: [OCR Turn][カメラ][検査] の3つを均等幅・等間隔で1列に（要件4） */
 .camera-bottom-bar {
   margin-top: 6px;
@@ -503,31 +432,6 @@ button:disabled {
   z-index: 3;
 }
 
-.inference-overlay-box {
-  position: absolute;
-  border: 3px solid #22d3ee;
-  pointer-events: none;
-  z-index: 4;
-}
-
-.inference-overlay-label {
-  position: absolute;
-  left: 2px;
-  top: 2px;
-  max-width: calc(100% - 4px);
-  padding: 3px 7px;
-  background: rgba(0, 0, 0, 0.72);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.25;
-  pointer-events: none;
-  z-index: 5;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* カメラ状態/検出数バッジは下段へ（上段左は状態オーバーレイに譲る。要件5） */
 .video-badge {
   position: absolute;
@@ -543,30 +447,6 @@ button:disabled {
 .video-badge-right {
   left: auto;
   right: 12px;
-}
-
-.info-panel {
-  display: grid;
-  gap: 4px;
-  align-content: start;
-}
-
-.info-tile {
-  background: var(--panel-strong);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 4px 6px;
-  display: grid;
-  gap: 2px;
-}
-
-.info-tile span {
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.info-tile strong {
-  font-size: 0.95rem;
 }
 
 .lookup-preview {
@@ -694,37 +574,9 @@ button:disabled {
   padding: 8px;
 }
 
-.check-pill {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 4px;
-  border-radius: 14px;
-  padding: 10px 12px;
-  min-width: 140px;
-  font-weight: 800;
-  border: 1px solid var(--border);
-}
-
-.check-pill span,
-.ocr-text,
-.selected-row-summary,
 .empty-state {
   color: var(--muted);
   font-weight: 700;
-}
-
-.ocr-text {
-  display: inline-block;
-  margin-top: 8px;
-  font-size: 0.9rem;
-  word-break: break-all;
-}
-
-.selected-row-summary {
-  margin-top: 10px;
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
 }
 
 .summary-grid {
@@ -830,27 +682,6 @@ button:disabled {
     max-height: none;
   }
 
-  .camera-control-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 6px;
-  }
-
-  .camera-control-strip label,
-  .overlay-mode-control {
-    font-size: 11px;
-  }
-
-  .camera-control-strip input,
-  .camera-control-strip select,
-  .camera-control-strip button {
-    min-height: 38px;
-    font-size: 14px;
-  }
-
-  .camera-inline-status {
-    font-size: 10px;
-  }
-
   /* スマホ幅でも下部4操作を1列に収める（折り返し・はみ出し禁止） */
   .camera-bottom-bar {
     gap: 4px;
@@ -860,14 +691,6 @@ button:disabled {
     font-size: 10px;
     padding: 0.3rem 0.2rem;
     min-height: 40px;
-  }
-
-  .info-panel {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .info-tile {
-    padding: 3px 6px;
   }
 
   /* スマホ: 1行維持のため文字・余白を詰める（flex/nowrap は基本指定のまま） */
@@ -894,10 +717,6 @@ button:disabled {
 }
 
 @media (max-width: 380px) {
-  .camera-control-strip {
-    grid-template-columns: 1fr;
-  }
-
   .video-stage {
     max-height: none;
   }
