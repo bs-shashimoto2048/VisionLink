@@ -143,6 +143,17 @@ class YoloAIPipeline:
                 raise AIModelError(self._ocr_error)
             return
         self._ocr_loaded = True
+        # 注: paddle を先に import すると後続の paddleocr(内部で torch を読む) が
+        # torch の shm.dll で WinError 127（DLL競合）を起こす。paddleocr を先に
+        # 読み込む順にすると競合を回避できる（import 順のみの是正・ロジックは不変）。
+        try:
+            paddleocr_module = __import__("paddleocr", fromlist=["PaddleOCR"])
+            self._paddleocr_version = str(getattr(paddleocr_module, "__version__", "unknown"))
+            logger.info("paddleocr import success version=%s", self._paddleocr_version)
+        except Exception as exc:
+            logger.info("paddleocr import failed reason=%s", str(exc))
+            self._ocr_error = "PaddleOCR is not installed or failed to import. Reinstall paddleocr==2.7.3 and paddlepaddle==2.6.2."
+            raise AIModelError(self._ocr_error) from exc
         try:
             paddle = __import__("paddle")
             logger.info(
@@ -154,14 +165,6 @@ class YoloAIPipeline:
         except Exception as exc:
             logger.info("paddlepaddle import failed reason=%s", str(exc))
             self._ocr_error = "paddlepaddle is not installed. Run: python -m pip install paddlepaddle"
-            raise AIModelError(self._ocr_error) from exc
-        try:
-            paddleocr_module = __import__("paddleocr", fromlist=["PaddleOCR"])
-            self._paddleocr_version = str(getattr(paddleocr_module, "__version__", "unknown"))
-            logger.info("paddleocr import success version=%s", self._paddleocr_version)
-        except Exception as exc:
-            logger.info("paddleocr import failed reason=%s", str(exc))
-            self._ocr_error = "PaddleOCR is not installed or failed to import. Reinstall paddleocr==2.7.3 and paddlepaddle==2.6.2."
             raise AIModelError(self._ocr_error) from exc
         if not self._ocr_rec_model_dir.exists():
             self._ocr_error = f"PaddleOCR rec model not found: {self._ocr_rec_model_dir}"
