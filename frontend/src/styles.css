@@ -304,22 +304,32 @@ button:disabled {
 /* 設定オーバーレイ内の4調整UI（YOLO閾値/OCR閾値/表示FPS/識別FPS）（要件F1） */
 .settings-fields {
   display: grid;
-  gap: 10px;
+  gap: 6px;
 }
 .settings-fields .settings-field {
-  display: grid;
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   font-size: 13px;
   font-weight: 700;
 }
 .settings-fields .settings-field input,
 .settings-fields .settings-field select {
-  width: 100%;
+  flex: 0 0 auto;
+  width: auto;
   min-width: 0;
+  max-width: 50%;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 0.4rem 0.5rem;
   min-height: 40px;
+}
+.settings-fields .settings-field select {
+  width: 140px;
+}
+.settings-fields .settings-field input[type="number"] {
+  width: 90px;
 }
 .settings-modal-header {
   display: flex;
