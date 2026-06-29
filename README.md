@@ -3,6 +3,12 @@
 スマートフォンをエッジ端末として利用する検査支援 Web / PWA アプリケーションの PoC です。  
 Frontend は React + TypeScript + Vite、Backend は FastAPI、保存先は SQLite です。
 
+## デモ
+
+実機での検査支援（端子台の撮影 → 検出・OCR → 消し込み）の様子です。
+
+![VisionLink デモ](docs/VisionLink.gif)
+
 ## 1. 設計方針
 
 - フロントエンドとバックエンドを分離し、将来クラウド AI サーバーへ切り替えやすい構成にしています。
