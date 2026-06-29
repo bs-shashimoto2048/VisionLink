@@ -7,7 +7,7 @@ Frontend は React + TypeScript + Vite、Backend は FastAPI、保存先は SQLi
 
 実機での検査支援（端子台の撮影 → 検出・OCR → 消し込み）の様子です。
 
-![VisionLink デモ](docs/VisionLink.gif)
+<img src="docs/VisionLink.gif" alt="VisionLink デモ" width="320">
 
 ## 1. 設計方針
 
