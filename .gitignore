@@ -34,6 +34,8 @@ model/**/*.onnx
 model/**/*.pdmodel
 model/**/*.pdiparams
 model/**/*.pdiparams.info
+# PaddleOCR モデル一式（ローカル実体のみ・リポジトリには含めない）
+model/paddleocr/
 
 # Local/private inspection data
 check_data/product/
