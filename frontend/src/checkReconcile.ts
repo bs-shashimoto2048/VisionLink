@@ -1,8 +1,6 @@
 import type { CheckDataStatus, CheckRow, OCRResult } from "./types";
 
 export function normalizeCheckText(value: unknown): string {
-  // 照合用の正規化のみ。表示値は OCR original のまま（この関数は比較時にだけ使う）。
-  // O/0 を同一視: 大文字化後、英字 O を数字 0 に寄せて両辺を一致させる（対象は O と 0 のみ）。
   return String(value ?? "")
     .trim()
     .toUpperCase()
@@ -14,18 +12,32 @@ function getOcrText(result: OCRResult | undefined): string {
   return normalizeCheckText(result?.text ?? result?.ocr_text ?? result?.value ?? result?.label ?? "");
 }
 
-function getBBoxCenterX(result: OCRResult | undefined): number | null {
+type Box = { x: number; y: number; width: number; height: number };
+
+function getBox(result: OCRResult | undefined): Box | null {
   const bbox = result?.bbox;
   if (!Array.isArray(bbox) || bbox.length < 4) return null;
-  const [x, _y, w, _h] = bbox.map(Number);
-  if (![x, w].every(Number.isFinite)) return null;
-  return x + w / 2;
+  const [x, y, width, height] = bbox.map(Number);
+  if (![x, y, width, height].every(Number.isFinite)) return null;
+  return { x, y, width, height };
 }
 
-function isRotateLabelDetection(value: { label?: string | null; class_name?: string | null; role?: string | null; name?: string | null }): boolean {
-  const text = [value.label, value.class_name, value.role, value.name]
+function centerX(box: Box): number {
+  return box.x + box.width / 2;
+}
+
+function centerY(box: Box): number {
+  return box.y + box.height / 2;
+}
+
+function detectionText(value: { label?: string | null; class_name?: string | null; role?: string | null; name?: string | null }): string {
+  return [value.label, value.class_name, value.role, value.name]
     .map(normalizeCheckText)
     .join(" ");
+}
+
+function isLabelDetection(value: { label?: string | null; class_name?: string | null; role?: string | null; name?: string | null }): boolean {
+  const text = detectionText(value);
   if (!text) return false;
   if (["TUBE", "TUBE_L", "TUBE_R", "LEFT_TUBE", "RIGHT_TUBE", "TUBE_LEFT", "TUBE_RIGHT"].some((token) => text.includes(token))) {
     return false;
@@ -34,9 +46,7 @@ function isRotateLabelDetection(value: { label?: string | null; class_name?: str
 }
 
 function isTubeDetection(value: { label?: string | null; class_name?: string | null; role?: string | null; name?: string | null }): boolean {
-  const text = [value.label, value.class_name, value.role, value.name]
-    .map(normalizeCheckText)
-    .join(" ");
+  const text = detectionText(value);
   if (!text) return false;
   if (["NMB", "LABEL", "NUMBER", "TERMINAL", "TERM", "NO", "LINE"].some((token) => text.includes(token))) {
     return false;
@@ -48,92 +58,120 @@ function isGoodStatus(status?: CheckDataStatus): boolean {
   return status === "OK";
 }
 
+function isSameRowBand(labelBox: Box, tubeBox: Box): boolean {
+  const verticalDistance = Math.abs(centerY(labelBox) - centerY(tubeBox));
+  const tolerance = Math.max(labelBox.height, tubeBox.height) * 2.5;
+  const overlapsVertically =
+    Math.max(labelBox.y, tubeBox.y) <= Math.min(labelBox.y + labelBox.height, tubeBox.y + tubeBox.height);
+  return overlapsVertically || verticalDistance <= tolerance;
+}
+
+function nearestTube(
+  labelBox: Box,
+  tubes: Array<{ result: OCRResult; box: Box; text: string }>,
+  side: "left" | "right",
+  guideX: number
+) {
+  const labelX = centerX(labelBox);
+  return tubes
+    .filter(({ box }) => {
+      const x = centerX(box);
+      if (!isSameRowBand(labelBox, box)) return false;
+      return side === "left" ? x < labelX && x < guideX : x > labelX && x >= guideX;
+    })
+    .sort((a, b) => Math.abs(centerX(a.box) - labelX) - Math.abs(centerX(b.box) - labelX))[0];
+}
+
 export function reconcileCheckRows(args: {
   rows: CheckRow[];
-  yoloResults: Array<{ label?: string | null; class_name?: string | null; role?: string | null; name?: string | null; side?: string | null; x?: number; width?: number; ocr_text?: string | null }>;
+  yoloResults: Array<{ label?: string | null; class_name?: string | null; role?: string | null; name?: string | null; side?: string | null; x?: number; y?: number; width?: number; height?: number; ocr_text?: string | null }>;
   ocrResults: OCRResult[];
   guideX: number;
   frameIndex?: number;
 }): CheckRow[] {
   const { rows, yoloResults, ocrResults, guideX, frameIndex } = args;
 
-  const labelTexts = new Set(
-    ocrResults
-      .filter((result) => {
-        const matched = rows.some((row) => normalizeCheckText(row.label) === getOcrText(result));
-        return matched || isRotateLabelDetection(result);
-      })
-      .map(getOcrText)
-      .filter(Boolean)
-  );
-
-  const leftTubeTexts = new Set<string>();
-  const rightTubeTexts = new Set<string>();
-  const fallbackTubeTexts = new Set<string>();
-
-  for (const result of ocrResults) {
-    const text = getOcrText(result);
-    if (!text) continue;
-    const cx = getBBoxCenterX(result);
-    if (isTubeDetection(result)) {
-      if (cx !== null) {
-        if (cx < guideX) {
-          leftTubeTexts.add(text);
-        } else {
-          rightTubeTexts.add(text);
-        }
-      } else {
-        fallbackTubeTexts.add(text);
-      }
+  // OCRResult が主経路。検出OCRのみ返った場合も Label/Tubes を失わないよう YOLO 結果を補助入力にする。
+  const combinedResults: OCRResult[] = [...ocrResults];
+  for (const detection of yoloResults) {
+    const text = normalizeCheckText(detection.ocr_text);
+    if (!text || detection.x == null || detection.y == null || detection.width == null || detection.height == null) continue;
+    const alreadyPresent = combinedResults.some((result) => {
+      const box = getBox(result);
+      return box && Math.abs(box.x - detection.x!) < 0.0001 && Math.abs(box.y - detection.y!) < 0.0001;
+    });
+    if (!alreadyPresent) {
+      combinedResults.push({
+        text,
+        confidence: 0,
+        bbox: [detection.x, detection.y, detection.width, detection.height],
+        label: detection.label,
+        role: detection.role,
+        side: detection.side,
+        source: "detection_ocr",
+      });
     }
   }
 
-  const nextRows = rows.map((row): CheckRow => {
-    if (row.completed || row.all_status === "OK") {
-      return row;
+  const rowLabels = new Set(rows.map((row) => normalizeCheckText(row.label)).filter(Boolean));
+  const labels = combinedResults
+    .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
+    .filter((item): item is { result: OCRResult; box: Box; text: string } => Boolean(item.box && item.text))
+    .filter(({ result, text }) => isLabelDetection(result) || rowLabels.has(text));
+
+  const tubes = combinedResults
+    .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
+    .filter((item): item is { result: OCRResult; box: Box; text: string } => Boolean(item.box && item.text))
+    .filter(({ result }) => isTubeDetection(result));
+
+  const nextRows = rows.map((row): CheckRow => ({ ...row }));
+
+  for (const label of labels) {
+    const rowIndex = nextRows.findIndex((row) => normalizeCheckText(row.label) === label.text);
+    if (rowIndex < 0) {
+      console.debug("[VisionLink] unmatched label", { frameIndex, label: label.text, bbox: label.result.bbox });
+      continue;
     }
 
-    // 各行の回答は1つ（チューブの期待値。CSV では tube_l == tube_r）。左右ともこの同じ回答と突合する。
-    // 中央 label/nmb は消込判定に含めない。
-    const answer = normalizeCheckText(row.tube_l) || normalizeCheckText(row.tube_r);
-    const leftMatched = Boolean(answer) && (leftTubeTexts.has(answer) || fallbackTubeTexts.has(answer));
-    const rightMatched = Boolean(answer) && (rightTubeTexts.has(answer) || fallbackTubeTexts.has(answer));
+    const row = nextRows[rowIndex];
+    if (row.completed || row.all_status === "OK") continue;
 
-    // 一度 OK になった側はラッチ（保持）。リセットは行/テーブルの読み直し時のみ（= checkRows の作り直し）。
-    const nextTubeLStatus: CheckDataStatus = isGoodStatus(row.tube_l_status) || leftMatched ? "OK" : "PENDING";
-    const nextTubeRStatus: CheckDataStatus = isGoodStatus(row.tube_r_status) || rightMatched ? "OK" : "PENDING";
+    const left = nearestTube(label.box, tubes, "left", guideX);
+    const right = nearestTube(label.box, tubes, "right", guideX);
+    const expectedLeft = normalizeCheckText(row.tube_l);
+    const expectedRight = normalizeCheckText(row.tube_r);
+    const leftMatched = Boolean(left && expectedLeft && left.text === expectedLeft);
+    const rightMatched = Boolean(right && expectedRight && right.text === expectedRight);
 
-    const completed = nextTubeLStatus === "OK" && nextTubeRStatus === "OK";
+    const nextLabelStatus: CheckDataStatus = "OK";
+    const nextTubeLStatus: CheckDataStatus = isGoodStatus(row.tube_l_status) || leftMatched ? "OK" : (row.tube_l_status ?? "PENDING");
+    const nextTubeRStatus: CheckDataStatus = isGoodStatus(row.tube_r_status) || rightMatched ? "OK" : (row.tube_r_status ?? "PENDING");
+    const completed = nextLabelStatus === "OK" && nextTubeLStatus === "OK" && nextTubeRStatus === "OK";
 
-    return {
+    nextRows[rowIndex] = {
       ...row,
+      label_status: nextLabelStatus,
       tube_l_status: nextTubeLStatus,
       tube_r_status: nextTubeRStatus,
       left_status: nextTubeLStatus,
-      // label は判定に含めないため変更しない（既存値を維持）
-      label_status: row.label_status ?? "PENDING",
       confirm_status: completed ? "OK" : (row.confirm_status ?? "PENDING"),
       all_status: completed ? "OK" : (row.all_status ?? "PENDING"),
       completed,
     };
-  });
 
-  console.debug("[VisionLink] check reconcile side sets", {
-    frameIndex,
-    labelTexts: Array.from(labelTexts),
-    leftTubeTexts: Array.from(leftTubeTexts),
-    rightTubeTexts: Array.from(rightTubeTexts),
-    rows: nextRows.map((r) => ({
-      label: r.label,
-      tube_l: r.tube_l,
-      tube_r: r.tube_r,
-      tube_l_status: r.tube_l_status,
-      tube_r_status: r.tube_r_status,
-      label_status: r.label_status,
-      all_status: r.all_status,
-      completed: r.completed,
-    })),
-  });
+    console.debug("[VisionLink] label anchored reconcile", {
+      frameIndex,
+      label: label.text,
+      rowIndex,
+      left: left?.text,
+      expectedLeft,
+      leftMatched,
+      right: right?.text,
+      expectedRight,
+      rightMatched,
+      completed,
+    });
+  }
 
   return nextRows;
 }
