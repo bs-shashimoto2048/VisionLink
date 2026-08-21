@@ -16,11 +16,13 @@ from .schemas import (
     LoginRequest,
     LoginResponse,
     ManualEditRequest,
+    PerformanceMetrics,
     StartInspectionRequest,
 )
 from .services.check_data import CheckDataError, list_boards, list_serials, list_terminals, load_table
 from .services.internal_data import lookup_internal_data
 from .services.ai_pipeline import AIModelError
+from .services.label_ocr import run_rotated_label_ocr
 from .services.session_manager import manager
 
 router = APIRouter(prefix="/api")
@@ -109,11 +111,12 @@ async def frame_analyze(
     yolo_confidence_threshold: float = Form(0.6),
     ocr_confidence_threshold: float = Form(0.6),
     rotate_left_tube_ocr: bool = Form(False),
+    rotate_label_ocr: bool = Form(False),
     frame: UploadFile = File(...),
 ) -> FrameAnalyzeResponse:
     try:
         frame_bytes = await frame.read()
-        return manager.process_frame(
+        response = manager.process_frame(
             session_id=session_id,
             operator_id=operator_id,
             frame_bytes=frame_bytes,
@@ -122,6 +125,27 @@ async def frame_analyze(
             ocr_confidence_threshold=ocr_confidence_threshold,
             rotate_left_tube_ocr=rotate_left_tube_ocr,
         )
+        if rotate_label_ocr:
+            label_results, label_ocr_ms = run_rotated_label_ocr(
+                frame_bytes,
+                response.detections,
+                ocr_confidence_threshold,
+            )
+            if label_results:
+                # Rotated label OCR is authoritative for nmb/label detections. Preserve tube results.
+                label_boxes = {tuple(result.bbox) for result in label_results}
+                response.ocr_results = [
+                    result
+                    for result in response.ocr_results
+                    if not (result.role == "label" or tuple(result.bbox) in label_boxes)
+                ] + label_results
+                response.ocr_text = label_results[0].text
+            response.performance = PerformanceMetrics(
+                yolo_ms=response.performance.yolo_ms,
+                ocr_ms=response.performance.ocr_ms + label_ocr_ms,
+                total_ms=response.performance.total_ms + label_ocr_ms,
+            )
+        return response
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except KeyError as exc:
