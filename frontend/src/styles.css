@@ -9,720 +9,91 @@
   --muted: #52606d;
   --brand: #0f766e;
   --brand-strong: #0b5f59;
-  --accent: #f59e0b;
   --ok: #15803d;
   --ng: #b91c1c;
   --warn: #b45309;
   --shadow: 0 16px 40px rgba(15, 23, 42, 0.12);
 }
-
-* {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  min-height: 100%;
-  overflow-x: hidden;
-}
-
-body {
-  margin: 0;
-  font-size: 11px;
-  color: var(--text);
-  background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 30%),
-    linear-gradient(180deg, #f5fbfb 0%, #e8eef4 100%);
-}
-
-button,
-input,
-select {
-  font: inherit;
-  max-width: 100%;
-}
-
-button {
-  border: 1px solid var(--border);
-  background: var(--panel-strong);
-  color: var(--text);
-  border-radius: 10px;
-  padding: 0.35rem 0.55rem;
-  min-height: 30px;
-  cursor: pointer;
-}
-
-button:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.primary {
-  background: linear-gradient(180deg, var(--brand), var(--brand-strong));
-  color: white;
-  border-color: transparent;
-}
-.danger {
-  background: linear-gradient(180deg, #b91c1c, #991b1b);
-  color: #fff;
-  border-color: transparent;
-}
-
-.app-shell {
-  width: min(1240px, calc(100vw - 24px));
-  margin: 0 auto;
-  padding: 8px 0 14px;
-}
-
-.hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 8px;
-  align-items: stretch;
-  margin-bottom: 8px;
-}
-
-.hero h1 {
-  margin: 0;
-  font-size: clamp(1.1rem, 2.2vw, 1.5rem);
-  line-height: 1.1;
-}
-
-.eyebrow {
-  margin: 0 0 8px;
-  color: var(--brand);
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.lead {
-  margin: 12px 0 0;
-  font-size: 1.05rem;
-  color: var(--muted);
-  line-height: 1.8;
-}
-
-.page-footer {
-  margin-top: 12px;
-  display: grid;
-  gap: 8px;
-}
-
-.card,
-.status-card,
-.banner {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 24px;
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(8px);
-}
-
-.status-card {
-  padding: 16px 18px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 6px;
-}
-
-.status-card strong {
-  font-size: 1.1rem;
-}
-
-.status-label,
-.status-meta {
-  color: var(--muted);
-}
-
-.tone-ok strong {
-  color: var(--ok);
-}
-
-.tone-ng strong {
-  color: var(--ng);
-}
-
-.tone-done strong {
-  color: var(--brand);
-}
-
-.tone-warn strong {
-  color: var(--warn);
-}
-
-.tone-neutral strong {
-  color: var(--text);
-}
-
-.banner {
-  margin-bottom: 14px;
-  padding: 14px 16px;
-  background: #ffffff;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.banner-text {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.banner-close {
-  flex: 0 0 auto;
-  min-height: 28px;
-  min-width: 28px;
-  padding: 0 8px;
-  line-height: 1;
-  font-size: 18px;
-  font-weight: 800;
-  border-radius: 8px;
-}
-
-.card {
-  padding: 8px;
-  margin-bottom: 6px;
-}
-
-.card h2,
-.card h3 {
-  margin: 0;
-}
-
-/* 最上部見出し VisionLink: 旧 hero タイトルの文字色(ブランド)でタイトルらしく（サイズは不変） */
-.card-header h2.app-title {
-  color: var(--brand);
-  letter-spacing: 0.04em;
-}
-
-/* 「検査テーブル」見出し: 周囲に合わせてもう少しだけ小さく（既定 1.5em → 1.2em） */
-.card-header h2.section-title {
-  font-size: 1.2em;
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-
-.button-row {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.button-row button,
-.button-row select {
-  min-width: 0;
-}
-
-.button-row.wrap {
-  margin-top: 10px;
-  align-items: center;
-}
-
-.form-grid {
-  display: grid;
-  gap: 8px;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.form-grid.compact {
-  grid-template-columns: 1fr;
-  max-width: 260px;
-}
-
-.form-grid label {
-  display: grid;
-  gap: 8px;
-  font-weight: 700;
-  color: var(--text);
-}
-
-.form-grid input {
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.45rem 0.55rem;
-  background: white;
-}
-
-.checkbox {
-  display: flex !important;
-  align-items: center;
-  gap: 10px;
-  min-height: 48px;
-}
-
-.camera-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.video-panel {
-  min-width: 0;
-}
-/* 下部操作バー: [OCR Turn][カメラ][検査] の3つを均等幅・等間隔で1列に（要件4） */
-.camera-bottom-bar {
-  margin-top: 6px;
-  display: flex;
-  flex-wrap: nowrap;
-  /* 誤操作しない程度に間隔を空ける */
-  gap: 10px;
-  align-items: stretch;
-}
-.camera-bottom-bar > * {
-  flex: 1 1 0;
-  min-width: 0;
-}
-.camera-bottom-bar select,
-.camera-bottom-bar button {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.35rem 0.4rem;
-  min-height: 40px;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.camera-bottom-bar button.toggle-active {
-  background: linear-gradient(180deg, #7c3aed, #5b21b6);
-  color: #fff;
-  border-color: transparent;
-}
-
-/* 設定オーバーレイ内の4調整UI（YOLO閾値/OCR閾値/表示FPS/識別FPS）（要件F1） */
-.settings-fields {
-  display: grid;
-  gap: 10px;
-}
-.settings-fields .settings-field {
-  display: grid;
-  gap: 4px;
-  font-size: 13px;
-  font-weight: 700;
-}
-.settings-fields .settings-field input,
-.settings-fields .settings-field select {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.4rem 0.5rem;
-  min-height: 40px;
-}
-.settings-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10px;
-}
-.settings-modal-header h3 {
-  margin: 0;
-  font-size: 1rem;
-}
-
-/* 状態表示: 映像左上の固定オーバーレイ（小さめ・背景は薄め＋影で可読性確保） */
-.camera-status-overlay {
-  position: absolute;
-  left: 8px;
-  top: 8px;
-  z-index: 4;
-  max-width: calc(100% - 16px);
-  padding: 2px 7px;
-  border-radius: 8px;
-  background: rgba(15, 23, 42, 0.5);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  pointer-events: none;
-}
-
-/* 検査進捗（検査テーブル見出しと再読込の中間） */
-.inspect-progress {
-  font-weight: 800;
-  font-size: 0.95rem;
-  color: #2563eb; /* 未完了=青 */
-  white-space: nowrap;
-}
-.inspect-progress.is-done {
-  color: #16a34a; /* 全完了=緑（消込セルと同系） */
-  /* 全行完了時に軽く光らせる演出（表示された時点で1回）。 */
-  animation: done-glow 1.4s ease-out 1;
-}
-@keyframes done-glow {
-  0% {
-    text-shadow: 0 0 0 rgba(22, 163, 74, 0);
-    transform: scale(1);
-  }
-  35% {
-    text-shadow: 0 0 10px rgba(22, 163, 74, 0.85);
-    transform: scale(1.08);
-  }
-  100% {
-    text-shadow: 0 0 0 rgba(22, 163, 74, 0);
-    transform: scale(1);
-  }
-}
-
-/* 消込確定行のハイライト（一度光って落ち着く）（要件F5） */
-.check-row-flash > td {
-  animation: row-flash 1.6s ease-out 1;
-}
-@keyframes row-flash {
-  0% { background: rgba(16, 185, 129, 0.55); }
-  100% { background: transparent; }
-}
-
-.video-stage {
-  position: relative;
-  min-height: 260px;
-  max-height: 68vh;
-  max-height: 68dvh;
-  background: #09111f;
-  border-radius: 14px;
-  overflow: hidden;
-  aspect-ratio: 4 / 3;
-}
-
-.camera-video,
-.overlay-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-}
-
-.camera-video {
-  object-fit: cover;
-  background: #09111f;
-  z-index: 1;
-}
-
-.camera-center-guide {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  /* なぞる目印として太い帯(30px)。強めに透過して中央の nmb が帯に埋もれないようにする。
-     見た目のみ・判定基準 guideX=0.5 は不変。 */
-  width: 30px;
-  transform: translateX(-50%);
-  background: rgba(255, 56, 56, 0.28);
-  pointer-events: none;
-  z-index: 2;
-}
-
-.overlay-canvas {
-  pointer-events: none;
-  z-index: 3;
-}
-
-/* カメラ状態/検出数バッジは下段へ（上段左は状態オーバーレイに譲る。要件5） */
-.video-badge {
-  position: absolute;
-  left: 12px;
-  bottom: 12px;
-  padding: 3px 6px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.78);
-  color: white;
-  font-weight: 800;
-}
-
-.video-badge-right {
-  left: auto;
-  right: 12px;
-}
-
-.lookup-preview {
-  margin-top: 6px;
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font-weight: 600;
-  font-size: 10px;
-}
-
-.check-data-selectors {
-  /* 製番/盤番号/端子台 を常に1行・折り返し禁止（表示のみ） */
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 6px;
-  align-items: center;
-  /* セレクタ行とテーブルヘッダーの間に少し余白（要件4） */
-  margin-bottom: 10px;
-}
-
-/* 幅配分は文字数比（製番8 : 盤番号2 : 端子台7、DOM順）。盤番号から先に詰める。 */
-.check-data-selectors select:nth-child(1) {
-  flex: 8 1 0;
-}
-.check-data-selectors select:nth-child(2) {
-  flex: 2 1 0;
-}
-.check-data-selectors select:nth-child(3) {
-  flex: 7 1 0;
-}
-
-.check-data-selectors select {
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 0.35rem 0.4rem;
-  min-height: 38px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  background: #fff;
-}
-
-.check-data-message {
-  margin: 4px 0 6px;
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.check-data-message.error {
-  color: var(--ng);
-}
-
-.check-table-wrap {
-  max-width: 100%;
-  max-height: 32vh;
-  max-height: 32dvh;
-  overflow: auto;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: #fff;
-  margin-bottom: 8px;
-}
-
-.check-data-table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-}
-
-.check-data-table th,
-.check-data-table td {
-  padding: 4px 4px;
-  border-bottom: 1px solid var(--border);
-  text-align: left;
-  font-size: 0.78rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* 列幅配分(L / Label / R / ALL の4列): L・R=広め(値8文字) / Label=中 / ALL=小（全カラム1行に収める） */
-.check-data-table th:nth-child(1),
-.check-data-table td:nth-child(1),
-.check-data-table th:nth-child(3),
-.check-data-table td:nth-child(3) {
-  width: 33%;
-}
-.check-data-table th:nth-child(2),
-.check-data-table td:nth-child(2) {
-  width: 18%;
-}
-.check-data-table th:nth-child(4),
-.check-data-table td:nth-child(4) {
-  width: 16%;
-}
-
-.check-data-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: #f8fbfc;
-  color: var(--muted);
-}
-
-.settings-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.55);
-  display: grid;
-  place-items: end center;
-  z-index: 30;
-  padding: 12px;
-}
-
-.settings-modal {
-  width: min(920px, 100%);
-  max-height: 88vh;
-  overflow: auto;
-  background: var(--panel-strong);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px;
-}
-
-.empty-state {
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.summary-grid {
-  margin-top: 8px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-}
-
-.summary-box {
-  border-radius: 12px;
-  padding: 8px;
-  background: #f8fbfc;
-  border: 1px solid var(--border);
-  display: grid;
-  gap: 8px;
-}
-
-.summary-box span {
-  color: var(--muted);
-  font-weight: 700;
-}
-
-.summary-box strong {
-  font-size: 1.15rem;
-}
-
-.check-cell-ok {
-  color: #16a34a;
-  font-weight: 700;
-}
-
-.check-row-completed {
-  background: rgba(148, 163, 184, 0.22);
-}
-
-.check-status-mark {
-  text-align: center;
-  font-weight: 700;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 24px 12px;
-}
-
-@media (max-width: 980px) {
-  .hero,
-  .camera-grid,
-  .form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .hero {
-    gap: 12px;
-  }
-}
-
-@media (max-width: 600px) {
-  body {
-    font-size: 12px;
-  }
-
-  .app-shell {
-    width: 100%;
-    padding: 6px;
-  }
-
-  .card,
-  .status-card,
-  .banner {
-    border-radius: 12px;
-  }
-
-  .card {
-    padding: 6px;
-    margin-bottom: 6px;
-  }
-
-  .hero {
-    margin-bottom: 6px;
-  }
-
-  .card-header {
-    gap: 6px;
-    margin-bottom: 6px;
-  }
-
-  .button-row {
-    gap: 6px;
-  }
-
-  .button-row button,
-  .button-row select {
-    min-height: 38px;
-  }
-
-  /* スマホ: 幅いっぱい・4:3(640:480)固定。高さは幅から算出し最初から確保（カメラ起動で揺れない）。 */
-  .video-stage {
-    width: 100%;
-    aspect-ratio: 4 / 3;
-    min-height: 0;
-    max-height: none;
-  }
-
-  /* スマホ幅でも下部4操作を1列に収める（折り返し・はみ出し禁止） */
-  .camera-bottom-bar {
-    gap: 4px;
-  }
-  .camera-bottom-bar select,
-  .camera-bottom-bar button {
-    font-size: 10px;
-    padding: 0.3rem 0.2rem;
-    min-height: 40px;
-  }
-
-  /* スマホ: 1行維持のため文字・余白を詰める（flex/nowrap は基本指定のまま） */
-  .check-data-selectors select {
-    font-size: 12px;
-    padding: 0.3rem 0.3rem;
-  }
-
-  .check-table-wrap {
-    max-height: 30vh;
-    max-height: 30dvh;
-    border-radius: 8px;
-  }
-
-  .check-data-table th,
-  .check-data-table td {
-    padding: 3px 3px;
-    font-size: 0.7rem;
-  }
-
-  .summary-box {
-    padding: 6px;
-  }
-}
-
-@media (max-width: 380px) {
-  .video-stage {
-    max-height: none;
-  }
-
-  .check-table-wrap {
-    max-height: 28vh;
-    max-height: 28dvh;
-  }
-}
+* { box-sizing: border-box; }
+html, body, #root { min-height: 100%; overflow-x: hidden; }
+body { margin: 0; font-size: 11px; color: var(--text); background: radial-gradient(circle at top left, rgba(15,118,110,.14), transparent 30%), linear-gradient(180deg,#f5fbfb 0%,#e8eef4 100%); }
+button,input,select { font: inherit; max-width: 100%; }
+button { border: 1px solid var(--border); background: var(--panel-strong); color: var(--text); border-radius: 10px; padding: .35rem .55rem; min-height: 30px; cursor: pointer; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.primary { background: linear-gradient(180deg,var(--brand),var(--brand-strong)); color:#fff; border-color:transparent; }
+.danger { background: linear-gradient(180deg,#b91c1c,#991b1b); color:#fff; border-color:transparent; }
+.app-shell { width:min(1240px,calc(100vw - 24px)); margin:0 auto; padding:8px 0 14px; }
+.lead { margin:12px 0 0; font-size:1.05rem; color:var(--muted); line-height:1.8; }
+.page-footer { margin-top:12px; display:grid; gap:8px; }
+.card,.status-card,.banner { background:var(--panel); border:1px solid var(--border); border-radius:24px; box-shadow:var(--shadow); backdrop-filter:blur(8px); }
+.status-card { padding:16px 18px; display:flex; flex-direction:column; justify-content:center; gap:6px; }
+.status-card strong { font-size:1.1rem; }
+.status-label,.status-meta { color:var(--muted); }
+.tone-ok strong { color:var(--ok); } .tone-ng strong { color:var(--ng); } .tone-done strong { color:var(--brand); } .tone-warn strong { color:var(--warn); } .tone-neutral strong { color:var(--text); }
+.banner { margin-bottom:14px; padding:14px 16px; background:#fff; font-weight:700; display:flex; align-items:center; gap:12px; }
+.banner-text { flex:1 1 auto; min-width:0; }
+.banner-close { flex:0 0 auto; min-height:28px; min-width:28px; padding:0 8px; line-height:1; font-size:18px; font-weight:800; border-radius:8px; }
+.card { padding:8px; margin-bottom:6px; }
+.card h2,.card h3 { margin:0; }
+.card-header h2.app-title { color:var(--brand); letter-spacing:.04em; }
+.card-header h2.section-title { font-size:1.2em; }
+.card-header { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:8px; }
+.button-row { display:flex; gap:6px; flex-wrap:wrap; }
+.button-row button,.button-row select { min-width:0; }
+.button-row.wrap { margin-top:10px; align-items:center; }
+.form-grid { display:grid; gap:8px; grid-template-columns:repeat(4,minmax(0,1fr)); }
+.form-grid.compact { grid-template-columns:1fr; max-width:260px; }
+.form-grid label { display:grid; gap:8px; font-weight:700; color:var(--text); }
+.form-grid input { border:1px solid var(--border); border-radius:10px; padding:.45rem .55rem; background:#fff; }
+.checkbox { display:flex!important; align-items:center; gap:10px; min-height:48px; }
+.camera-grid { display:grid; grid-template-columns:1fr; gap:8px; margin-bottom:8px; }
+.video-panel { min-width:0; }
+.camera-bottom-bar { margin-top:6px; display:grid; grid-template-columns:52px 70px minmax(0,1fr) minmax(0,1fr); gap:8px; align-items:stretch; width:100%; }
+.camera-bottom-bar button { width:100%; min-width:0; border:1px solid var(--border); border-radius:8px; padding:.35rem .4rem; min-height:40px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ocr-direction-button { transition:background-color .12s ease,border-color .12s ease,color .12s ease; }
+.ocr-direction-l.is-active { background:#7c3aed; border-color:#6d28d9; color:#fff; }
+.ocr-direction-label.is-active { background:#f97316; border-color:#ea580c; color:#fff; }
+.settings-fields { display:grid; gap:10px; }
+.settings-fields .settings-field { display:grid; gap:4px; font-size:13px; font-weight:700; }
+.settings-fields .settings-field input,.settings-fields .settings-field select { width:100%; min-width:0; border:1px solid var(--border); border-radius:8px; padding:.4rem .5rem; min-height:40px; }
+.settings-modal-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.settings-modal-header h3 { margin:0; font-size:1rem; }
+.camera-status-overlay { position:absolute; left:8px; top:8px; z-index:4; max-width:calc(100% - 16px); padding:2px 7px; border-radius:8px; background:rgba(15,23,42,.5); color:#fff; font-size:10px; font-weight:700; text-shadow:0 1px 2px rgba(0,0,0,.7); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; pointer-events:none; }
+.inspect-progress { font-weight:800; font-size:.95rem; color:#2563eb; white-space:nowrap; }
+.inspect-progress.is-done { color:#16a34a; animation:done-glow 1.4s ease-out 1; }
+@keyframes done-glow { 0%{text-shadow:0 0 0 rgba(22,163,74,0);transform:scale(1)} 35%{text-shadow:0 0 10px rgba(22,163,74,.85);transform:scale(1.08)} 100%{text-shadow:0 0 0 rgba(22,163,74,0);transform:scale(1)} }
+.check-row-flash>td { animation:row-flash 1.6s ease-out 1; }
+@keyframes row-flash { 0%{background:rgba(16,185,129,.55)} 100%{background:transparent} }
+.video-stage { position:relative; min-height:260px; max-height:68vh; max-height:68dvh; background:#09111f; border-radius:14px; overflow:hidden; aspect-ratio:4/3; }
+.camera-video,.overlay-canvas { position:absolute; inset:0; width:100%; height:100%; }
+.camera-video { object-fit:cover; background:#09111f; z-index:1; }
+.camera-center-guide { position:absolute; top:0; bottom:0; left:50%; width:30px; transform:translateX(-50%); background:rgba(255,56,56,.28); pointer-events:none; z-index:2; }
+.overlay-canvas { pointer-events:none; z-index:3; }
+.video-badge { position:absolute; left:12px; bottom:12px; padding:3px 6px; border-radius:999px; background:rgba(15,23,42,.78); color:#fff; font-weight:800; }
+.video-badge-right { left:auto; right:12px; }
+.lookup-preview { margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; color:var(--muted); font-weight:600; font-size:10px; }
+.check-data-selectors { display:flex; flex-wrap:nowrap; gap:6px; align-items:center; margin-bottom:10px; }
+.check-data-selectors select:nth-child(1){flex:8 1 0}.check-data-selectors select:nth-child(2){flex:2 1 0}.check-data-selectors select:nth-child(3){flex:7 1 0}
+.check-data-selectors select { min-width:0; border:1px solid var(--border); border-radius:8px; padding:.35rem .4rem; min-height:38px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; background:#fff; }
+.check-data-message { margin:4px 0 6px; color:var(--muted); font-weight:700; }.check-data-message.error{color:var(--ng)}
+.check-table-wrap { max-width:100%; max-height:32vh; max-height:32dvh; overflow:auto; border:1px solid var(--border); border-radius:12px; background:#fff; margin-bottom:8px; }
+.check-data-table { width:100%; border-collapse:collapse; table-layout:fixed; }
+.check-data-table th,.check-data-table td { padding:4px; border-bottom:1px solid var(--border); text-align:left; font-size:.78rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.check-data-table th:nth-child(1),.check-data-table td:nth-child(1),.check-data-table th:nth-child(3),.check-data-table td:nth-child(3){width:33%}.check-data-table th:nth-child(2),.check-data-table td:nth-child(2){width:18%}.check-data-table th:nth-child(4),.check-data-table td:nth-child(4){width:16%}
+.check-data-table thead th { position:sticky; top:0; z-index:2; background:#f8fbfc; color:var(--muted); }
+.settings-modal-backdrop { position:fixed; inset:0; background:rgba(15,23,42,.55); display:grid; place-items:end center; z-index:30; padding:12px; }
+.settings-modal { width:min(920px,100%); max-height:88vh; overflow:auto; background:var(--panel-strong); border:1px solid var(--border); border-radius:12px; padding:8px; }
+.empty-state { color:var(--muted); font-weight:700; text-align:center; padding:24px 12px; }
+.summary-grid { margin-top:8px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+.check-cell-ok { color:#16a34a; font-weight:800; }
+.check-row-completed { background:rgba(148,163,184,.22); }
+.check-status-mark { text-align:center; font-weight:700; }
+@media(max-width:980px){.camera-grid,.form-grid{grid-template-columns:1fr}}
+@media(max-width:600px){
+ body{font-size:12px}.app-shell{width:100%;padding:6px}.card,.status-card,.banner{border-radius:12px}.card{padding:6px;margin-bottom:6px}.card-header{gap:6px;margin-bottom:6px}.button-row{gap:6px}.button-row button,.button-row select{min-height:38px}
+ .video-stage{width:100%;aspect-ratio:4/3;min-height:0;max-height:none}
+ .camera-bottom-bar{grid-template-columns:42px 58px minmax(0,1fr) minmax(0,1fr);gap:4px}
+ .camera-bottom-bar button{font-size:10px;padding:.3rem .18rem;min-height:40px}
+ .check-data-selectors select{font-size:12px;padding:.3rem}.check-table-wrap{max-height:30vh;max-height:30dvh;border-radius:8px}.check-data-table th,.check-data-table td{padding:3px;font-size:.7rem}
+}
+@media(max-width:380px){.check-table-wrap{max-height:28vh;max-height:28dvh}}
