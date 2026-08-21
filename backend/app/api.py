@@ -21,7 +21,7 @@ from .schemas import (
 )
 from .services.check_data import CheckDataError, list_boards, list_serials, list_terminals, load_table
 from .services.internal_data import lookup_internal_data
-from .services.ai_pipeline import AIModelError
+from .services.ai_pipeline import AIModelError, pipeline
 from .services.label_ocr import run_rotated_label_ocr
 from .services.session_manager import manager
 
@@ -126,20 +126,24 @@ async def frame_analyze(
             rotate_left_tube_ocr=rotate_left_tube_ocr,
         )
         if rotate_label_ocr:
+            # Label ON means rotated label OCR is authoritative even when recognition fails.
+            # Remove every unrotated nmb/label OCR result before appending the rotated results.
+            label_boxes = {
+                (det.x, det.y, det.width, det.height)
+                for det in response.detections
+                if pipeline._is_nmb_detection(det)
+            }
             label_results, label_ocr_ms = run_rotated_label_ocr(
                 frame_bytes,
                 response.detections,
                 ocr_confidence_threshold,
             )
-            if label_results:
-                # Rotated label OCR is authoritative for nmb/label detections. Preserve tube results.
-                label_boxes = {tuple(result.bbox) for result in label_results}
-                response.ocr_results = [
-                    result
-                    for result in response.ocr_results
-                    if not (result.role == "label" or tuple(result.bbox) in label_boxes)
-                ] + label_results
-                response.ocr_text = label_results[0].text
+            response.ocr_results = [
+                result
+                for result in response.ocr_results
+                if not (result.role == "label" or tuple(result.bbox) in label_boxes)
+            ] + label_results
+            response.ocr_text = label_results[0].text if label_results else None
             response.performance = PerformanceMetrics(
                 yolo_ms=response.performance.yolo_ms,
                 ocr_ms=response.performance.ocr_ms + label_ocr_ms,
