@@ -18,10 +18,9 @@ import {
 } from "./api";
 import { useCamera, useFrameSampler } from "./camera";
 import { CheckStatus, SessionStatus } from "./types";
-import type { CheckDataStatus, CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
+import type { CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
 import { reconcileCheckRows } from "./checkReconcile";
 
-// 表示切替リスト: 順序は現状の逆順、デフォルトは「推論結果」（要件3）
 const OVERLAY_MODES = {
   inference_result: "表示: 推論結果",
   ocr_result: "表示: OCR結果",
@@ -39,13 +38,7 @@ const TEXT = {
 };
 
 const DEFAULT_INTAKE = { qrText: "DEMO-0001", orderNo: "", serialNo: "", terminalName: "" };
-
-// 接続/セッション系ツール(再接続・カメラ切替・内部データ参照・ログアウト・intakeフォーム)を
-// UI から非表示にするフラグ。state/ハンドラ/ロジックは残し、true に戻せば復活する（要件F1）。
 const SHOW_SESSION_TOOLS = false;
-
-// OK/NG/Pending サマリー・状態カード・注意書きを UI から非表示にするフラグ（集計/state は維持）。
-// スマホで場所を圧迫するため。true に戻せば復活する。
 const SHOW_STATUS_PANELS = false;
 
 function rowKey(row: CheckRow, index: number) {
@@ -56,7 +49,6 @@ function isRowCompleted(row: CheckRow) {
   return Boolean(row.completed) || row.all_status === "OK";
 }
 
-// 映像左上の状態表示用: セッション状態を読んで分かる日本語に
 function sessionStatusLabel(status?: string) {
   switch (status) {
     case SessionStatus.IN_PROGRESS:
@@ -100,6 +92,7 @@ function App() {
   const [yoloThreshold, setYoloThreshold] = useState(0.6);
   const [ocrThreshold, setOcrThreshold] = useState(0.6);
   const [rotateLeftTubeOcr, setRotateLeftTubeOcr] = useState(false);
+  const [rotateLabelOcr, setRotateLabelOcr] = useState(false);
   const [displayFps, setDisplayFps] = useState(30);
   const [analysisFps, setAnalysisFps] = useState(2);
   const [serials, setSerials] = useState<string[]>([]);
@@ -115,8 +108,6 @@ function App() {
   const pendingLookup = useRef(false);
   const guideX = 0.5;
 
-  // バナーの自動消去: 通常通知は短め(2s)、エラー(対処が要るもの)は少し長め(5s)。×で即時消去。
-  // ※「出っぱなし」防止のための解除処理。通信状態・進捗など他の表示には影響しない。
   const bannerTimer = useRef<number | null>(null);
   const showBanner = (text: string, opts?: { error?: boolean }) => {
     setBanner(text);
@@ -142,9 +133,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (operator && !inspection) {
-      void refreshActiveSession();
-    }
+    if (operator && !inspection) void refreshActiveSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [operator]);
 
@@ -225,107 +214,61 @@ function App() {
           yoloConfidenceThreshold: yoloThreshold,
           ocrConfidenceThreshold: ocrThreshold,
           rotateLeftTubeOcr,
+          rotateLabelOcr,
         });
         console.debug("[VisionLink] frame analyze for reconcile", {
           frameIndex: response.frame_index,
-          isCheckTableReady,
-          inspectionRunning,
-          checkRowsLength: checkTable?.rows?.length ?? 0,
           yoloCount: response.detections?.length ?? 0,
           ocrCount: response.ocr_results?.length ?? 0,
           ocrResults: response.ocr_results?.map((result) => ({
             text: result.text,
-            ocr_text: result.ocr_text,
-            value: result.value,
             label: result.label,
             bbox: result.bbox,
             role: result.role,
-            class_name: result.label,
             source: result.source,
             rotated: result.rotated,
+            rotation_deg: result.rotation_deg,
+            rotation_mode: result.rotation_mode,
           })),
         });
         setLastFrameAnalysis(response);
         setInspection(response);
       } catch (error) {
-        if (error instanceof ApiError && error.status === 503) {
-          showBanner(`AI unavailable: ${error.message}`, { error: true });
-        } else {
-          showBanner(error instanceof Error ? error.message : "Frame upload failed", { error: true });
-        }
+        if (error instanceof ApiError && error.status === 503) showBanner(`AI unavailable: ${error.message}`, { error: true });
+        else showBanner(error instanceof Error ? error.message : "Frame upload failed", { error: true });
       }
     },
   });
 
   const statusLabel = inspection?.status ?? (operator ? "待機中" : "未ログイン");
   const inspectionRunning = inspection?.status === SessionStatus.IN_PROGRESS;
-  const isInspectionActive =
-    inspectionRunning ||
-    inspection?.status === SessionStatus.PAUSED ||
-    inspection?.status === SessionStatus.COMPLETED;
+  const isInspectionActive = inspectionRunning || inspection?.status === SessionStatus.PAUSED || inspection?.status === SessionStatus.COMPLETED;
   const overlayOcrResults = useMemo(() => {
     const latest = lastFrameAnalysis?.ocr_results ?? [];
     return latest.length > 0 ? latest : (inspection?.ocr_results ?? []);
   }, [inspection?.ocr_results, lastFrameAnalysis?.ocr_results]);
   const isCheckTableReady = Boolean(selectedSerial) && Boolean(selectedBoard) && Boolean(selectedTerminal) && (checkTable?.rows?.length ?? 0) > 0;
   const reconcileFrameIndex = lastFrameAnalysis?.frame_index ?? inspection?.frame_index ?? 0;
-  useEffect(() => {
-    console.debug("[VisionLink] reconcile gate", {
-      isCheckTableReady,
-      inspectionRunning,
-      isInspectionActive,
-      checkRowsLength: checkTable?.rows?.length ?? 0,
-      checkRowsStateLength: checkRows.length,
-      yoloCount: lastFrameAnalysis?.detections?.length ?? inspection?.detections?.length ?? 0,
-      ocrCount: lastFrameAnalysis?.ocr_results?.length ?? inspection?.ocr_results?.length ?? 0,
-    });
-  }, [checkRows.length, checkTable?.rows?.length, inspectionRunning, isInspectionActive, isCheckTableReady, lastFrameAnalysis?.detections?.length, lastFrameAnalysis?.ocr_results?.length, inspection?.detections?.length, inspection?.ocr_results?.length]);
+
   useEffect(() => {
     setCheckRows((prevRows) => {
-      if (!isCheckTableReady || !isInspectionActive || prevRows.length === 0) {
-        console.debug("[VisionLink] reconcile skipped", {
-          isCheckTableReady,
-          isInspectionActive,
-          prevRowsLength: prevRows.length,
-        });
-        return prevRows;
-      }
-
-      const nextRows = reconcileCheckRows({
+      if (!isCheckTableReady || !isInspectionActive || prevRows.length === 0) return prevRows;
+      return reconcileCheckRows({
         rows: prevRows,
         yoloResults: lastFrameAnalysis?.detections ?? inspection?.detections ?? [],
         ocrResults: overlayOcrResults,
         guideX,
         frameIndex: reconcileFrameIndex,
       });
-
-      console.debug("[VisionLink] reconcile applied", {
-        frameIndex: reconcileFrameIndex,
-        previous: prevRows.map((row) => ({
-          label: row.label,
-          tube_l_status: row.tube_l_status,
-          tube_r_status: row.tube_r_status,
-          completed: row.completed,
-        })),
-        next: nextRows.map((row) => ({
-          label: row.label,
-          tube_l_status: row.tube_l_status,
-          tube_r_status: row.tube_r_status,
-          completed: row.completed,
-        })),
-      });
-
-      return nextRows;
     });
   }, [checkRows.length, isCheckTableReady, isInspectionActive, lastFrameAnalysis?.detections, inspection?.detections, overlayOcrResults, guideX, reconcileFrameIndex]);
+
   const allRowsCompleted = checkRows.length > 0 && checkRows.every(isRowCompleted);
-  // 進捗表示用（既存の消込状態から算出。新たな判定は増やさない）
   const totalCount = checkRows.length;
   const completedCount = checkRows.filter(isRowCompleted).length;
-
-  // 消込が成立した行のハイライト演出（完了の実感は演出で出す。フォーカスの主役ではない）。
   const prevCompletedRef = useRef<Set<string>>(new Set());
   const [highlightKey, setHighlightKey] = useState<string | null>(null);
+
   useEffect(() => {
     const prev = prevCompletedRef.current;
     const next = new Set<string>();
@@ -341,11 +284,9 @@ function App() {
     if (newlyCompleted) setHighlightKey(newlyCompleted);
   }, [checkRows]);
 
-  // フォーカスの定位置 ＝ 常に「最若の未完了行」。並びはテーブル表示順（配列の先頭側）を優先。
-  // 全行完了時は -1（先頭へ戻す + 完了演出を出すための合図）。
   const focusKey = useMemo(() => {
     const index = checkRows.findIndex((row) => !isRowCompleted(row));
-    if (index < 0) return null; // 全行完了
+    if (index < 0) return null;
     return rowKey(checkRows[index], index);
   }, [checkRows]);
 
@@ -353,20 +294,9 @@ function App() {
     if (overlayMode !== "ocr_result") return;
     console.debug("[VisionLink] OCR overlay state", {
       renderedCount: overlayOcrResults.length,
-      inspectionOcrResults: inspection?.ocr_results ?? [],
-      lastFrameOcrResults: lastFrameAnalysis?.ocr_results ?? [],
-      renderedOcrResults: overlayOcrResults.map((result) => ({
-        keys: Object.keys(result),
-        text: result.text,
-        ocr_text: result.ocr_text,
-        value: result.value,
-        label: result.label,
-        confidence: result.confidence,
-        bbox: result.bbox,
-        source: result.source,
-      })),
+      renderedOcrResults: overlayOcrResults,
     });
-  }, [inspection?.ocr_results, lastFrameAnalysis?.ocr_results, overlayMode, overlayOcrResults]);
+  }, [overlayMode, overlayOcrResults]);
 
   async function refreshActiveSession() {
     const sessionId = window.localStorage.getItem("visionlink-session");
@@ -401,8 +331,6 @@ function App() {
     setLastFrameAnalysis(null);
     setWorkerConfirmed(false);
     window.localStorage.setItem("visionlink-session", response.session_id);
-    // セッション開始の表示は非表示（要件フェーズ2）。開始ロジックは維持。バナー要素はエラー表示用に残す。
-    // setBanner(`セッション開始: ${response.session_id}`);
   }
 
   async function handleStopInspection() {
@@ -450,11 +378,7 @@ function App() {
       showBanner("完了前に作業者確認が必要です", { error: true });
       return;
     }
-    const response = await completeInspection({
-      sessionId: inspection.session_id,
-      operatorId: operator.operator_id,
-      workerConfirmed,
-    });
+    const response = await completeInspection({ sessionId: inspection.session_id, operatorId: operator.operator_id, workerConfirmed });
     setInspection(response);
     stopCamera();
     window.localStorage.removeItem("visionlink-session");
@@ -474,22 +398,10 @@ function App() {
 
   return (
     <div className="app-shell">
-      {/* 最上部タイトル(VisionLink)とその直下の"検査"は非表示（要件2）。実質の最上部見出しは
-          下のカメラカード見出し("VisionLink")が担う。復元する場合はこのコメントを戻す。
-      <header className="hero">
-        <div>
-          <p className="eyebrow">{TEXT.appTitle}</p>
-          <h1>{TEXT.headline}</h1>
-        </div>
-      </header>
-      */}
-
       {banner ? (
         <div className="banner">
           <span className="banner-text">{banner}</span>
-          <button type="button" className="banner-close" aria-label="閉じる" onClick={dismissBanner}>
-            ×
-          </button>
+          <button type="button" className="banner-close" aria-label="閉じる" onClick={dismissBanner}>×</button>
         </div>
       ) : null}
 
@@ -497,74 +409,58 @@ function App() {
         <section className="card">
           <h2>{TEXT.loginTitle}</h2>
           <div className="form-grid compact">
-            <label>
-              社員番号
-              <input
-                value={loginForm.employeeId}
-                maxLength={4}
-                onChange={(event) => setLoginForm({ employeeId: event.target.value.replace(/\D/g, "") })}
-              />
-            </label>
+            <label>社員番号<input value={loginForm.employeeId} maxLength={4} onChange={(event) => setLoginForm({ employeeId: event.target.value.replace(/\D/g, "") })} /></label>
           </div>
-          <div className="button-row">
-            <button className="primary" onClick={() => void handleLogin()} disabled={loginForm.employeeId.length !== 4}>
-              ログイン
-            </button>
-          </div>
+          <div className="button-row"><button className="primary" onClick={() => void handleLogin()} disabled={loginForm.employeeId.length !== 4}>ログイン</button></div>
         </section>
       ) : (
         <>
           <section className="card">
             <div className="card-header">
               <h2 className="app-title">VisionLink</h2>
-              <div className="button-row">
-                <button onClick={() => setSettingsOpen((v) => !v)}>{settingsOpen ? "設定を閉じる" : "設定"}</button>
-              </div>
+              <div className="button-row"><button onClick={() => setSettingsOpen((v) => !v)}>{settingsOpen ? "設定を閉じる" : "設定"}</button></div>
             </div>
 
             <div className="camera-grid">
               <div className="video-panel">
-                {/* 映像エリア: 4:3・cover（左右クロップ表示）。単一 video。 */}
                 <div className="video-stage">
                   <video ref={videoRef} className="camera-video" playsInline muted autoPlay />
                   <div className="camera-center-guide" aria-hidden="true" />
                   <OverlayCanvas detections={inspection?.detections ?? []} ocrResults={overlayOcrResults} mode={overlayMode} />
                   <div className="video-badge">{cameraState.running ? "カメラ起動中" : "カメラ停止中"}</div>
                   <div className="video-badge video-badge-right">検出: {inspection?.detections.length ?? 0}</div>
-                  {/* 状態表示は映像内の固定オーバーレイ（左上）。略号をやめ読んで分かる表記に（要件5） */}
                   <div className="camera-status-overlay">
-                    {sessionStatusLabel(inspection?.status)} ・ 通信{isOnline ? "ON" : "OFF"} ・{" "}
-                    {inspection
-                      ? `推論 ${inspection.performance.yolo_ms}ms / OCR ${inspection.performance.ocr_ms}ms`
-                      : "推論 —"}
+                    {sessionStatusLabel(inspection?.status)} ・ 通信{isOnline ? "ON" : "OFF"} ・ {inspection ? `推論 ${inspection.performance.yolo_ms}ms / OCR ${inspection.performance.ocr_ms}ms` : "推論 —"}
                   </div>
                 </div>
 
-                {/* 下部操作バー: [OCR Turn][カメラ][検査] の3つを均等幅・等間隔で（要件4。表示切替は設定へ移動） */}
-                <div className="camera-bottom-bar">
+                <div
+                  className="camera-bottom-bar"
+                  style={{ display: "grid", gridTemplateColumns: "52px 70px minmax(0,1fr) minmax(0,1fr)", gap: "8px", alignItems: "stretch" }}
+                >
                   <button
-                    className={rotateLeftTubeOcr ? "toggle-active" : ""}
-                    title={rotateLeftTubeOcr ? "左側Tubeの180度回転OCRを無効にする" : "左側Tubeの180度回転OCRを有効にする"}
-                    aria-label={rotateLeftTubeOcr ? "Rotate OCR: ON" : "Rotate OCR: OFF"}
+                    title="左側Tube 180度回転OCR"
+                    aria-pressed={rotateLeftTubeOcr}
                     onClick={() => setRotateLeftTubeOcr((value) => !value)}
-                  >
-                    {rotateLeftTubeOcr ? "OCR Turn ON" : "OCR Turn OFF"}
-                  </button>
+                    style={rotateLeftTubeOcr ? { background: "#7c3aed", borderColor: "#6d28d9", color: "#fff" } : undefined}
+                  >L</button>
+                  <button
+                    title="Label/nmb 左90度補正OCR"
+                    aria-pressed={rotateLabelOcr}
+                    onClick={() => setRotateLabelOcr((value) => !value)}
+                    style={rotateLabelOcr ? { background: "#f97316", borderColor: "#ea580c", color: "#fff" } : undefined}
+                  >Label</button>
                   <button
                     onClick={cameraState.running ? stopCamera : startCamera}
                     disabled={!isCheckTableReady && !cameraState.running}
                     title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
-                  >
-                    {cameraState.running ? "カメラ停止" : "カメラ開始"}
-                  </button>
+                  >{cameraState.running ? "カメラ停止" : "カメラ開始"}</button>
                   <button
                     className={inspectionRunning ? "danger" : "primary"}
                     onClick={() => void (inspectionRunning ? handleStopInspection() : handleStartInspection())}
                     disabled={!isCheckTableReady && !inspectionRunning}
                     title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
-                  >
-                    {inspectionRunning ? "検査停止" : "検査開始"}
-                  </button>
+                  >{inspectionRunning ? "検査停止" : "検査開始"}</button>
                 </div>
               </div>
             </div>
@@ -572,140 +468,59 @@ function App() {
             {settingsOpen ? createPortal(
               <div className="settings-modal-backdrop" onClick={() => setSettingsOpen(false)}>
                 <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
-                  <div className="settings-modal-header">
-                    <h3>設定</h3>
-                    <button onClick={() => setSettingsOpen(false)}>閉じる</button>
-                  </div>
-
-                  {/* 設定の先頭に表示モード、続けて4調整値（表示モード→YOLO閾値→OCR閾値→表示FPS→識別FPS） */}
+                  <div className="settings-modal-header"><h3>設定</h3><button onClick={() => setSettingsOpen(false)}>閉じる</button></div>
                   <div className="settings-fields">
-                    <label className="settings-field">
-                      表示モード
-                      <select
-                        aria-label="表示切替"
-                        value={overlayMode}
-                        onChange={(event) => setOverlayMode(event.target.value as keyof typeof OVERLAY_MODES)}
-                      >
-                        {Object.entries(OVERLAY_MODES).map(([value, label]) => (
-                          <option key={value} value={value}>
-                            {label}
-                          </option>
-                        ))}
+                    <label className="settings-field">表示モード
+                      <select aria-label="表示切替" value={overlayMode} onChange={(event) => setOverlayMode(event.target.value as keyof typeof OVERLAY_MODES)}>
+                        {Object.entries(OVERLAY_MODES).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                       </select>
                     </label>
-                    <label className="settings-field">
-                      YOLO閾値
-                      <input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} />
-                    </label>
-                    <label className="settings-field">
-                      OCR閾値
-                      <input type="number" min={0.05} max={0.95} step={0.05} value={ocrThreshold} onChange={(event) => setOcrThreshold(Number(event.target.value))} />
-                    </label>
-                    <label className="settings-field">
-                      表示FPS
-                      <input type="number" min={1} max={120} step={1} value={displayFps} onChange={(event) => setDisplayFps(Number(event.target.value))} />
-                    </label>
-                    <label className="settings-field">
-                      識別FPS
-                      <input type="number" min={1} max={5} step={1} value={analysisFps} onChange={(event) => setAnalysisFps(Number(event.target.value))} />
-                    </label>
+                    <label className="settings-field">YOLO閾値<input type="number" min={0.05} max={0.95} step={0.05} value={yoloThreshold} onChange={(event) => setYoloThreshold(Number(event.target.value))} /></label>
+                    <label className="settings-field">OCR閾値<input type="number" min={0.05} max={0.95} step={0.05} value={ocrThreshold} onChange={(event) => setOcrThreshold(Number(event.target.value))} /></label>
+                    <label className="settings-field">表示FPS<input type="number" min={1} max={120} step={1} value={displayFps} onChange={(event) => setDisplayFps(Number(event.target.value))} /></label>
+                    <label className="settings-field">識別FPS<input type="number" min={1} max={5} step={1} value={analysisFps} onChange={(event) => setAnalysisFps(Number(event.target.value))} /></label>
                   </div>
-
-                  {/* 接続/セッション系・intakeフォームは非表示（state/ロジックは保持。SHOW_SESSION_TOOLS=true で復活） */}
                   {SHOW_SESSION_TOOLS ? (
                     <>
                       <div className="button-row wrap">
                         <button onClick={() => void reconnectCamera()}>再接続</button>
                         <button onClick={() => void switchCamera()}>カメラ切替</button>
                         <button onClick={() => void handleLookup()}>内部データ参照</button>
+                        <button onClick={() => void handleResumeSession()}>検査再開</button>
+                        <button onClick={() => void handleAbortInspection()}>検査中止</button>
                         <button onClick={handleLogout}>ログアウト</button>
                       </div>
                       <div className="form-grid intake-grid">
-                        <label>
-                          QR
-                          <input value={intake.qrText} onChange={(event) => setIntake({ ...intake, qrText: event.target.value })} />
-                        </label>
-                        <label>
-                          注文番号
-                          <input value={intake.orderNo} onChange={(event) => setIntake({ ...intake, orderNo: event.target.value })} />
-                        </label>
-                        <label>
-                          端末番号
-                          <input value={intake.serialNo} onChange={(event) => setIntake({ ...intake, serialNo: event.target.value })} />
-                        </label>
-                        <label>
-                          端末名
-                          <input value={intake.terminalName} onChange={(event) => setIntake({ ...intake, terminalName: event.target.value })} />
-                        </label>
+                        <label>QR<input value={intake.qrText} onChange={(event) => setIntake({ ...intake, qrText: event.target.value })} /></label>
+                        <label>注文番号<input value={intake.orderNo} onChange={(event) => setIntake({ ...intake, orderNo: event.target.value })} /></label>
+                        <label>端末番号<input value={intake.serialNo} onChange={(event) => setIntake({ ...intake, serialNo: event.target.value })} /></label>
+                        <label>端末名<input value={intake.terminalName} onChange={(event) => setIntake({ ...intake, terminalName: event.target.value })} /></label>
                       </div>
                     </>
                   ) : null}
                 </div>
-              </div>,
-              document.body
+              </div>, document.body
             ) : null}
 
-            {lookupPreview ? (
-              <div className="lookup-preview">
-                <span>{lookupPreview.source}</span>
-                <span>
-                  {lookupPreview.order_no}/{lookupPreview.serial_no}
-                </span>
-              </div>
-            ) : null}
+            {lookupPreview ? <div className="lookup-preview"><span>{lookupPreview.source}</span><span>{lookupPreview.order_no}/{lookupPreview.serial_no}</span></div> : null}
           </section>
 
           <section className="card">
             <div className="card-header">
               <h2 className="section-title">検査テーブル</h2>
-              {/* 進捗: 未完了は青字「完了/総数」、全行完了で緑字「検査完了」（要件3） */}
-              {totalCount > 0 ? (
-                allRowsCompleted ? (
-                  <span className="inspect-progress is-done">検査完了</span>
-                ) : (
-                  <span className="inspect-progress">
-                    {completedCount} / {totalCount}
-                  </span>
-                )
-              ) : null}
+              {totalCount > 0 ? (allRowsCompleted ? <span className="inspect-progress is-done">検査完了</span> : <span className="inspect-progress">{completedCount} / {totalCount}</span>) : null}
               <div className="button-row">
                 <button onClick={() => void refreshActiveSession()}>再読込</button>
-                <button
-                  className="primary"
-                  onClick={() => void handleComplete()}
-                  disabled={!isCheckTableReady || !inspectionRunning || !allRowsCompleted || !workerConfirmed}
-                  title={!allRowsCompleted ? "すべての行の照合完了後に完了できます" : !workerConfirmed ? "作業者確認が必要です" : undefined}
-                >
+                <button className="primary" onClick={() => void handleComplete()} disabled={!isCheckTableReady || !inspectionRunning || !allRowsCompleted || !workerConfirmed}>
                   {TEXT.checkComplete}
                 </button>
               </div>
             </div>
 
             <div className="check-data-selectors">
-              <select value={selectedSerial} onChange={(event) => setSelectedSerial(event.target.value)}>
-                <option value="">製番</option>
-                {serials.map((serial) => (
-                  <option key={serial} value={serial}>
-                    {serial}
-                  </option>
-                ))}
-              </select>
-              <select value={selectedBoard} onChange={(event) => setSelectedBoard(event.target.value)} disabled={!selectedSerial}>
-                <option value="">盤番号</option>
-                {boards.map((board) => (
-                  <option key={board} value={board}>
-                    {board}
-                  </option>
-                ))}
-              </select>
-              <select value={selectedTerminal} onChange={(event) => setSelectedTerminal(event.target.value)} disabled={!selectedBoard}>
-                <option value="">端子台</option>
-                {terminals.map((terminal) => (
-                  <option key={terminal} value={terminal}>
-                    {terminal}
-                  </option>
-                ))}
-              </select>
+              <select value={selectedSerial} onChange={(event) => setSelectedSerial(event.target.value)}><option value="">製番</option>{serials.map((serial) => <option key={serial} value={serial}>{serial}</option>)}</select>
+              <select value={selectedBoard} onChange={(event) => setSelectedBoard(event.target.value)} disabled={!selectedSerial}><option value="">盤番号</option>{boards.map((board) => <option key={board} value={board}>{board}</option>)}</select>
+              <select value={selectedTerminal} onChange={(event) => setSelectedTerminal(event.target.value)} disabled={!selectedBoard}><option value="">端子台</option>{terminals.map((terminal) => <option key={terminal} value={terminal}>{terminal}</option>)}</select>
             </div>
 
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
@@ -713,40 +528,24 @@ function App() {
             <CheckDataTable rows={checkRows} highlightKey={highlightKey} focusKey={focusKey} allCompleted={allRowsCompleted} />
 
             <div className="button-row wrap">
-              <label className="checkbox">
-                <input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!isCheckTableReady || !allRowsCompleted} />
-                {TEXT.workerConfirmed}
-              </label>
+              <label className="checkbox"><input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!isCheckTableReady || !allRowsCompleted} />{TEXT.workerConfirmed}</label>
             </div>
 
-            {/* OK/NG/Pending サマリー（集計は維持・表示のみ停止） */}
             {SHOW_STATUS_PANELS ? (
               <div className="summary-grid">
-                <div className="summary-box">
-                  <span>OK</span>
-                  <strong>{inspection?.summary?.ok_count ?? 0}</strong>
-                </div>
-                <div className="summary-box">
-                  <span>NG</span>
-                  <strong>{inspection?.summary?.ng_count ?? 0}</strong>
-                </div>
-                <div className="summary-box">
-                  <span>Pending</span>
-                  <strong>{inspection?.summary?.pending_count ?? 0}</strong>
-                </div>
+                <div className="summary-box"><span>OK</span><strong>{inspection?.summary?.ok_count ?? 0}</strong></div>
+                <div className="summary-box"><span>NG</span><strong>{inspection?.summary?.ng_count ?? 0}</strong></div>
+                <div className="summary-box"><span>Pending</span><strong>{inspection?.summary?.pending_count ?? 0}</strong></div>
               </div>
             ) : null}
           </section>
         </>
       )}
 
-      {/* 状態カード(IN_PROGRESS/Operator)・最下段の注意書き（表示のみ停止・ロジックは維持） */}
       {SHOW_STATUS_PANELS ? (
         <footer className="page-footer">
           <div className={`status-card ${statusTone(statusLabel)}`}>
-            <span className="status-label">状態</span>
-            <strong>{statusLabel}</strong>
-            <span className="status-meta">{operator ? `${operator.display_name} / ${operator.operator_id}` : "社員番号4桁を入力"}</span>
+            <span className="status-label">状態</span><strong>{statusLabel}</strong><span className="status-meta">{operator ? `${operator.display_name} / ${operator.operator_id}` : "社員番号4桁を入力"}</span>
           </div>
           <p className="lead">{TEXT.description}</p>
         </footer>
@@ -755,11 +554,16 @@ function App() {
   );
 }
 
-function OverlayCanvas({
-  detections,
-  ocrResults,
-  mode,
-}: {
+type OverlayBox = { x: number; y: number; width: number; height: number };
+type RotationMode = "none" | "left_tube" | "label";
+
+function getRotationMode(result?: OCRResult): RotationMode {
+  if (result?.rotation_mode === "label" || result?.rotation_deg === -90) return "label";
+  if (result?.rotation_mode === "left_tube" || result?.rotation_deg === 180) return "left_tube";
+  return "none";
+}
+
+function OverlayCanvas({ detections, ocrResults, mode }: {
   detections: { label: string; confidence: number; x: number; y: number; width: number; height: number; ocr_text?: string | null }[];
   ocrResults: OCRResult[];
   mode: "series_conf" | "raw" | "ocr_result" | "inference_result";
@@ -783,7 +587,7 @@ function OverlayCanvas({
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, rect.width, rect.height);
 
-      const toCanvasBox = (box: { x: number; y: number; width: number; height: number }) => {
+      const toCanvasBox = (box: OverlayBox) => {
         const isNormalized = Math.max(box.x, box.y, box.width, box.height) <= 1;
         const rawLeft = isNormalized ? box.x * rect.width : box.x;
         const rawTop = isNormalized ? box.y * rect.height : box.y;
@@ -795,128 +599,71 @@ function OverlayCanvas({
         const height = Math.max(2, Math.min(rect.height - top, rawHeight));
         return { left, top, width, height };
       };
-
-      const toBoxInput = (bbox: [number, number, number, number]) => ({
-        x: bbox[0],
-        y: bbox[1],
-        width: bbox[2],
-        height: bbox[3],
-      });
-
+      const toBoxInput = (bbox: [number, number, number, number]): OverlayBox => ({ x: bbox[0], y: bbox[1], width: bbox[2], height: bbox[3] });
       const getOcrText = (result?: OCRResult) => (result?.text ?? result?.ocr_text ?? result?.value ?? result?.label ?? "").trim();
+      const colorFor = (rotationMode: RotationMode) => rotationMode === "label" ? "rgba(249, 115, 22, 0.88)" : rotationMode === "left_tube" ? "rgba(168, 85, 247, 0.88)" : "rgba(34, 211, 238, 0.88)";
 
-      const isCenterInside = (
-        inner: { left: number; top: number; width: number; height: number },
-        outer: { left: number; top: number; width: number; height: number }
-      ) => {
+      const isCenterInside = (inner: ReturnType<typeof toCanvasBox>, outer: ReturnType<typeof toCanvasBox>) => {
         const centerX = inner.left + inner.width / 2;
         const centerY = inner.top + inner.height / 2;
         return centerX >= outer.left && centerX <= outer.left + outer.width && centerY >= outer.top && centerY <= outer.top + outer.height;
       };
 
-      const resolveInferenceText = (
-        box: { label: string; confidence: number; x: number; y: number; width: number; height: number; ocr_text?: string | null },
-        index: number
-      ) => {
-        const detectionText = box.ocr_text?.trim();
-        if (detectionText) return { text: detectionText, rotated: false };
-
-        const sameOrderResult = ocrResults[index];
-        const sameOrderText = getOcrText(sameOrderResult);
-        if (sameOrderText && Math.abs(detections.length - ocrResults.length) <= 1) {
-          return { text: sameOrderText, rotated: Boolean(sameOrderResult?.rotated) };
-        }
-
-        const boxCanvas = toCanvasBox(box);
-        const overlapped = ocrResults
-          .filter((result) => isCenterInside(toCanvasBox(toBoxInput(result.bbox)), boxCanvas))
-          .map((result) => ({ text: getOcrText(result), rotated: Boolean(result.rotated) }))
-          .filter((result) => result.text);
-        return { text: overlapped.map((result) => result.text).join(" "), rotated: overlapped.some((result) => result.rotated) };
+      const matchingResult = (box: OverlayBox) => {
+        const canvasBox = toCanvasBox(box);
+        return ocrResults.find((result) => isCenterInside(toCanvasBox(toBoxInput(result.bbox)), canvasBox));
       };
 
-      const drawBox = (box: { x: number; y: number; width: number; height: number }, label: string, rotated = false) => {
+      const drawBox = (box: OverlayBox, label: string, rotationMode: RotationMode) => {
         const { left, top, width, height } = toCanvasBox(box);
-        const labelText = label.trim() || "(no text)";
-        const labelHeight = 18;
-        const labelX = left + 2;
-        const labelY = top + 2;
-
-        // 枠線のみ・細め・透過（映像が透ける）。回転=紫は維持。
-        ctx.strokeStyle = rotated ? "rgba(168, 85, 247, 0.85)" : "rgba(251, 191, 36, 0.85)";
+        ctx.strokeStyle = colorFor(rotationMode);
         ctx.lineWidth = 1.25;
         ctx.strokeRect(left, top, width, height);
-
-        // 不透明な背景塗りは廃止。影で可読性だけ控えめに補助し、文字は小さめ＋透過。
-        ctx.save();
-        ctx.font = "bold 12px Segoe UI, sans-serif";
-        ctx.textBaseline = "middle";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
-        ctx.shadowBlur = 3;
-        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.fillText(labelText, labelX + 4, labelY + labelHeight / 2);
-        ctx.restore();
-      };
-
-      const drawInferenceBox = (box: { x: number; y: number; width: number; height: number }, label: string, rotated = false) => {
-        const { left, top, width, height } = toCanvasBox(box);
-        // 枠線のみ・細め・透過（映像が透ける）。回転=紫は維持。
-        ctx.strokeStyle = rotated ? "rgba(168, 85, 247, 0.85)" : "rgba(34, 211, 238, 0.85)";
-        ctx.lineWidth = 1.25;
-        ctx.strokeRect(left, top, width, height);
-
         const labelText = label.trim();
         if (!labelText) return;
-
-        const labelHeight = 18;
-        const labelX = left + 2;
-        const labelY = top + 2;
-        // 不透明な背景塗りは廃止。影で可読性だけ控えめに補助し、文字は小さめ＋透過。
         ctx.save();
         ctx.font = "bold 11px Segoe UI, sans-serif";
         ctx.textBaseline = "middle";
         ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
         ctx.shadowBlur = 3;
-        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.fillText(labelText, labelX + 4, labelY + labelHeight / 2);
+        ctx.fillStyle = "rgba(255, 255, 255, 0.92)";
+        ctx.fillText(labelText, left + 6, top + 11);
         ctx.restore();
       };
 
-      if (mode === "inference_result") {
-        const boxes = detections.map((box, index) => ({
-          box,
-          result: resolveInferenceText(box, index),
-        }));
-        boxes.forEach(({ box, result }) => drawInferenceBox(box, result.text, result.rotated));
-        console.debug("[VisionLink] inference overlay state", {
-          yoloCount: detections.length,
-          ocrCount: ocrResults.length,
-          renderedCount: boxes.length,
-          boxes: boxes.map(({ box, result }) => ({ bbox: [box.x, box.y, box.width, box.height], text: result.text, rotated: result.rotated })),
-        });
-        return;
-      }
+      const drawRotationArrow = (result: OCRResult, rotationMode: RotationMode) => {
+        const { left, top } = toCanvasBox(toBoxInput(result.bbox));
+        const text = rotationMode === "label" ? "↶90°" : "↻180°";
+        ctx.save();
+        ctx.font = "bold 15px Segoe UI Symbol, Segoe UI, sans-serif";
+        ctx.textBaseline = "bottom";
+        ctx.fillStyle = colorFor(rotationMode).replace("0.88", "0.68");
+        ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
+        ctx.shadowBlur = 2;
+        ctx.fillText(text, Math.max(2, left - 3), Math.max(16, top - 3));
+        ctx.restore();
+      };
 
-      if (mode === "ocr_result") {
-        if (ocrResults.length > 0) {
-          ocrResults.forEach((result) => {
-            const [x, y, width, height] = result.bbox;
-            const labelText = result.text ?? result.ocr_text ?? result.value ?? result.label ?? "(no text)";
-            drawBox({ x, y, width, height }, labelText || "(no text)", Boolean(result.rotated));
-          });
-          return;
-        }
-
+      if (mode === "ocr_result" && ocrResults.length > 0) {
+        ocrResults.forEach((result) => drawBox(toBoxInput(result.bbox), getOcrText(result) || "OCR未取得", getRotationMode(result)));
+      } else {
         detections.forEach((box) => {
-          drawBox(box, box.ocr_text?.trim() || "OCR未取得");
+          const result = matchingResult(box);
+          const rotationMode = getRotationMode(result);
+          const text = mode === "series_conf"
+            ? `${box.label} ${Math.round(box.confidence * 100)}%`
+            : mode === "raw"
+              ? (box.ocr_text?.trim() || getOcrText(result) || box.label)
+              : (box.ocr_text?.trim() || getOcrText(result));
+          drawBox(box, text, rotationMode);
         });
-        return;
       }
 
-      detections.forEach((box) => {
-        const hasOcr = Boolean(box.ocr_text && box.ocr_text.trim());
-        const label = mode === "raw" ? (hasOcr ? box.ocr_text!.trim() : box.label) : `${box.label} ${Math.round(box.confidence * 100)}%`;
-        drawBox(box, label);
+      (["left_tube", "label"] as RotationMode[]).forEach((rotationMode) => {
+        const topResult = ocrResults
+          .filter((result) => getRotationMode(result) === rotationMode)
+          .sort((a, b) => a.bbox[1] - b.bbox[1])[0];
+        if (topResult) drawRotationArrow(topResult, rotationMode);
       });
     };
 
@@ -928,24 +675,13 @@ function OverlayCanvas({
   return <canvas ref={canvasRef} className="overlay-canvas" />;
 }
 
-function statusMark(status?: "PENDING" | "OK" | "NG") {
-  if (status === "OK") return "◯";
-  if (status === "NG") return "×";
-  return "";
-}
-
 function allStatusLabel(status?: "PENDING" | "OK" | "NG") {
   if (status === "OK") return "OK";
   if (status === "NG") return "NG";
   return "";
 }
 
-function CheckDataTable({
-  rows,
-  highlightKey,
-  focusKey,
-  allCompleted,
-}: {
+function CheckDataTable({ rows, highlightKey, focusKey, allCompleted }: {
   rows: CheckRow[];
   highlightKey?: string | null;
   focusKey?: string | null;
@@ -953,95 +689,60 @@ function CheckDataTable({
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const focusRowRef = useRef<HTMLTableRowElement | null>(null);
-  // 自動スクロール実行中フラグ: scrollIntoView 自身が onScroll を発火させるため、
-  // その間の scroll は手動と誤判定しない（ユーザー由来の scroll だけを拾う）。
   const autoScrollingRef = useRef(false);
   const autoScrollClearTimer = useRef<number | null>(null);
-  // 手動スクロール後の無操作タイマー。満了で最若の未完了行へ復帰する。
   const idleTimer = useRef<number | null>(null);
   const [suspendAutoFollow, setSuspendAutoFollow] = useState(false);
 
-  // 最若の未完了行（または全行完了時は先頭）へスクロールして寄せる（ページは動かさない）。
-  // 通常はスクロール領域の縦中央へ（block:"center"）。全完了時のみ先頭へ。
   const scrollToFocus = () => {
     const wrap = wrapRef.current;
     if (!wrap) return;
-    // 全行完了 → 先頭へ。未完了あり → 最若未完了行へ。対象が無ければ何もしない。
     if (!allCompleted && !focusRowRef.current) return;
-    autoScrollingRef.current = true; // この後の onScroll を「自動」と判定させる
-    if (allCompleted) {
-      wrap.scrollTo({ top: 0, behavior: "smooth" });
-    } else {
-      focusRowRef.current!.scrollIntoView({ block: "center", behavior: "smooth" });
-    }
-    // smooth スクロールの onScroll 連鎖が落ち着くまでフラグを保持してから解除する。
+    autoScrollingRef.current = true;
+    if (allCompleted) wrap.scrollTo({ top: 0, behavior: "smooth" });
+    else focusRowRef.current!.scrollIntoView({ block: "center", behavior: "smooth" });
     if (autoScrollClearTimer.current) window.clearTimeout(autoScrollClearTimer.current);
-    autoScrollClearTimer.current = window.setTimeout(() => {
-      autoScrollingRef.current = false;
-    }, 600);
+    autoScrollClearTimer.current = window.setTimeout(() => { autoScrollingRef.current = false; }, 600);
   };
 
-  // フォーカス対象（最若未完了行 / 全完了）が変わったら自動追従。ただし手動スクロール中は保留。
   useEffect(() => {
     if (suspendAutoFollow) return;
     scrollToFocus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey, allCompleted, suspendAutoFollow]);
 
-  // ユーザー由来の scroll を検知して自動追従を一時停止。無操作が続いたら最若未完了行へ復帰。
   const handleScroll = () => {
-    if (autoScrollingRef.current) return; // 自動スクロール由来は無視
+    if (autoScrollingRef.current) return;
     setSuspendAutoFollow(true);
     if (idleTimer.current) window.clearTimeout(idleTimer.current);
-    idleTimer.current = window.setTimeout(() => {
-      setSuspendAutoFollow(false); // 復帰 → useEffect が最若未完了行へ戻す
-    }, 700);
+    idleTimer.current = window.setTimeout(() => setSuspendAutoFollow(false), 700);
   };
 
-  useEffect(() => {
-    return () => {
-      if (idleTimer.current) window.clearTimeout(idleTimer.current);
-      if (autoScrollClearTimer.current) window.clearTimeout(autoScrollClearTimer.current);
-    };
+  useEffect(() => () => {
+    if (idleTimer.current) window.clearTimeout(idleTimer.current);
+    if (autoScrollClearTimer.current) window.clearTimeout(autoScrollClearTimer.current);
   }, []);
 
   return (
     <div className="check-table-wrap" ref={wrapRef} onScroll={handleScroll}>
       <table className="check-data-table">
-        <thead>
-          <tr>
-            <th>L</th>
-            <th>Label</th>
-            <th>R</th>
-            <th>ALL</th>
-          </tr>
-        </thead>
+        <thead><tr><th>L</th><th>Label</th><th>R</th><th>ALL</th></tr></thead>
         <tbody>
           {rows.map((row, index) => {
             const key = rowKey(row, index);
             const completed = isRowCompleted(row);
             const isHighlight = key === highlightKey;
-            const isFocus = key === focusKey; // 最若の未完了行（フォーカスの定位置）
+            const isFocus = key === focusKey;
             return (
-              <tr
-                key={key}
-                ref={isFocus ? focusRowRef : undefined}
-                className={`${completed ? "check-row-completed" : ""}${isHighlight ? " check-row-flash" : ""}`}
-              >
+              <tr key={key} ref={isFocus ? focusRowRef : undefined} className={`${completed ? "check-row-completed" : ""}${isHighlight ? " check-row-flash" : ""}`}>
                 <td className={row.tube_l_status === "OK" ? "check-cell-ok" : ""}>{row.tube_l}</td>
-                <td className="check-status-mark">{row.label}</td>
+                <td className={`check-status-mark ${row.label_status === "OK" ? "check-cell-ok" : ""}`}>{row.label}</td>
                 <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
                 <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>
               </tr>
             );
           })}
-          {!rows.length ? (
-            <tr>
-              <td colSpan={4} className="empty-state">
-                チェックデータがありません
-              </td>
-            </tr>
-          ) : null}
+          {!rows.length ? <tr><td colSpan={4} className="empty-state">チェックデータがありません</td></tr> : null}
         </tbody>
       </table>
     </div>
