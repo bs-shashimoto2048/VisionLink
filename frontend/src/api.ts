@@ -135,6 +135,7 @@ export async function analyzeFrame(payload: {
   yoloConfidenceThreshold?: number;
   ocrConfidenceThreshold?: number;
   rotateLeftTubeOcr?: boolean;
+  rotateLabelOcr?: boolean;
 }) {
   const formData = new FormData();
   formData.append("session_id", payload.sessionId);
@@ -143,6 +144,7 @@ export async function analyzeFrame(payload: {
   formData.append("yolo_confidence_threshold", String(payload.yoloConfidenceThreshold ?? 0.25));
   formData.append("ocr_confidence_threshold", String(payload.ocrConfidenceThreshold ?? 0.5));
   formData.append("rotate_left_tube_ocr", String(payload.rotateLeftTubeOcr ?? false));
+  formData.append("rotate_label_ocr", String(payload.rotateLabelOcr ?? false));
   formData.append("frame", payload.frame, `frame-${payload.frameIndex}.jpg`);
   const response = await requestJson<InspectionSessionResponse>(
     "/api/inspection/frame-analyze",
