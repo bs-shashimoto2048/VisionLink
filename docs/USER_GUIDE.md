@@ -175,7 +175,7 @@ BBoxから切り出した左Tube画像をそのままOCRします。
 
 ## 6.1 L / Label補正を使用した実機画面
 
-<img src="images/visionlink-l-label-active.jpg" alt="LとLabelのOCR回転補正を有効にしたiPhone実機画面" width="300">
+<img src="images/visionlink-l-label-active.png" alt="LとLabelのOCR回転補正を有効にしたiPhone実機画面" width="300">
 
 上の画面は、実際のiPhone検査画面で **L と Label の両方のOCR方向補正を有効にして検査している状態**です。
 
