@@ -93,33 +93,13 @@ Tube ─ 端子 ─ Tube
 
 実機では Safari から VisionLink を開き、端子台を**縦向きに画面へ収めて**検査します。
 
-実機画面では、概ね次のように表示されます。
+以下は実際の検査時の画面例です。
 
-```text
-┌────────────────────────────┐
-│ Safari                     │
-├────────────────────────────┤
-│                            │
-│    左Tube   Label   右Tube │
-│      □        □        □   │
-│      □        □        □   │
-│      □        □        □   │
-│      □        □        □   │
-│                            │
-│ [ L ] [ Label ] [カメラ停止] [検査停止]
-├────────────────────────────┤
-│ 検査テーブル        9 / 100 │
-│ [製番] [盤] [端子台]       │
-│                            │
-│ L        Label    R     ALL│
-│ H0D4F8V    6   H0D4F8V  OK│
-│ P5X9Q2     7   P5X9Q2     │
-│ D5A2L9F4   8   D5A2L9F4 OK│
-│ V2C8M      9   V2C8M    OK│
-│                            │
-│ □ 作業者確認               │
-└────────────────────────────┘
-```
+<p align="center">
+  <img src="images/iphone-ui-guide.svg" alt="VisionLink iPhone実機画面" width="500">
+</p>
+
+> 画像はユーザーガイド掲載用にリサイズしています。実際の画面では端子台、BBox、操作ボタン、検査テーブルを同一画面上で確認します。
 
 ### 3.1 画面上部：カメラ・BBox
 
@@ -318,14 +298,3 @@ VisionLinkは中央のLabel / nmbをアンカーとして、その端子に対�
 - **L / LabelをONにしてもBBoxそのものは回転しません。**
 - AI/OCR結果のみを根拠として製品品質を確定しないでください。
 - 誤認識を発見した場合は、対象端子・期待値・実際のOCR結果・可能であれば画像を記録してください。
-
----
-
-## 関連ドキュメント
-
-- [README.md](README.md) - Docs一覧
-- [SPEC.md](SPEC.md) - システム仕様
-- [ARCHITECTURE.md](ARCHITECTURE.md) - システム構成
-- [OCR_STRATEGY.md](OCR_STRATEGY.md) - OCR・回転補正・照合方針
-- [API.md](API.md) - Backend API
-- [TODO.md](TODO.md) - 今後の課題
