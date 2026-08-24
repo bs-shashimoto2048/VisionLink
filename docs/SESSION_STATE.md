@@ -1,333 +1,178 @@
-# セッション状態管理
+# セッション状態管理（Prototype）
 
-## 概要
+VisionLink Backendは検査処理をセッション単位で管理します。
+この文書は `backend/app/services/session_manager.py` の現行実装を基準にしています。
+画面上の L / Label / R 消込については [OCR_STRATEGY.md](OCR_STRATEGY.md) を参照してください。
 
-VisionLink では、検査作業の開始から完了までを **セッション** として管理します。セッションは一意の ID で追跡され、状態遷移、データ永続化、エラーハンドリングなどの機能を提供します。
+## 1. セッションの役割
 
-## セッションライフサイクル
+セッションは次の情報を保持します。
 
-```
-┌─────────────┐
-│   START     │  POST /api/inspection/session/start
-└──────┬──────┘
-       │
-       ▼
-┌──────────────────┐
-│  IN_PROGRESS     │  フレーム解析: POST /api/inspection/frame-analyze
-│  (検査中)         │  一時停止: POST .../pause
-└──────┬───────────┘
-       │
-    ┌──┴──┬────────────────┐
-    │     │                │
-    ▼     ▼                ▼
- ┌────┐ ┌──────┐      ┌──────────┐
- │PAUSE│ │ABORT │      │COMPLETED │
- └─┬──┘ └──────┘      └──────────┘
-   │
-   ▼
- ┌─────────────┐
- │ IN_PROGRESS │ (再開)
- └─────────────┘
-```
+- `session_id`
+- `operator_id`
+- `order_no / serial_no / terminal_name / qr_text`
+- Backend側の検査行
+- `status`
+- `frame_index`
+- OCR安定判定状態
+- 最新YOLO detections
+- 最新OCR results
+- 作業者確認状態
+- performance
+- 作成/更新/完了日時
 
-### 状態遷移表
+メモリ上のセッションが存在しない場合でも、保存済みSQLiteデータから復元できます。
 
-| 現在の状態 | 遷移先 | 操作 | 条件 |
-|----------|--------|------|------|
-| IN_PROGRESS | PAUSED | pause | 常に可能 |
-| IN_PROGRESS | COMPLETED | complete | worker_confirmed = true |
-| IN_PROGRESS | ABORTED | abort | 常に可能 |
-| PAUSED | IN_PROGRESS | resume | 常に可能 |
-| PAUSED | ABORTED | abort | 常に可能 |
-| COMPLETED | - | - | 終了状態 |
-| ABORTED | - | - | 終了状態 |
+## 2. 状態遷移
 
-## セッションデータ
-
-### セッションオブジェクト
-
-```python
-class InspectionSession:
-    session_id: str                    # UUID (例: "sess-a1b2c3d4")
-    operator_id: str                   # 作業者 ID
-    status: SessionStatus              # IN_PROGRESS, PAUSED, COMPLETED, ABORTED
-    order_no: str                      # 注文番号
-    serial_no: str                     # シリアルNo
-    terminal_name: str                 # 検査機器名
-    rows: List[InspectionRow]         # 検査項目行
-    created_at: datetime               # 作成時刻
-    completed_at: Optional[datetime]   # 完了時刻
+```text
+                 pause
+ IN_PROGRESS ─────────────> PAUSED
+      │                       │
+      │ complete              │ resume
+      ▼                       ▼
+ COMPLETED                IN_PROGRESS
+      
+ IN_PROGRESS ── abort ──> ABORTED
+ PAUSED      ── abort ──> ABORTED
 ```
 
-### 検査行オブジェクト
+| 状態 | 意味 |
+|---|---|
+| `IN_PROGRESS` | 検査中 |
+| `PAUSED` | 一時停止 |
+| `COMPLETED` | 完了 |
+| `ABORTED` | 中止 |
 
-```python
-class InspectionRow:
-    line_no: int                # 行番号 (1-indexed)
-    item_code: str              # 品目コード
-    item_name: str              # 品目名
-    expected_result: str        # 期待値 ("OK" or "NG")
-    status: str                 # 検査結果ステータス
-    note: str                   # 備考 (自動判定理由 or 手修正理由)
+## 3. セッション開始
+
+`POST /api/inspection/session/start`
+
+1. 内部データを取得
+2. `RuntimeRow` を生成
+3. UUIDの `session_id` を発行
+4. セッションsnapshotを保存
+5. 行データを保存
+6. メモリ上のSessionManagerへ登録
+
+## 4. フレーム処理
+
+`POST /api/inspection/frame-analyze`
+
+概略:
+
+```text
+camera frame
+    │
+    ▼
+YOLO detect
+    │
+    ├─ detection OCR
+    │      ├─ normal Tube
+    │      └─ L ON: left Tube crop 180°
+    │
+    ├─ OCR results path
+    │
+    ├─ stability evaluation
+    │
+    └─ stable時のrow OCR / Backend judgement
+
+Label ONの場合はAPI層で追加処理
+    └─ nmb cropを左90°回転 → PaddleOCR
 ```
 
-## 状態別の処理
+Backendの行判定と、画面上の消込は同じものではありません。
 
-### 1. IN_PROGRESS (検査中)
+- Backend: `judge_row()` によるセッション行状態
+- Frontend: `checkReconcile.ts` による Labelアンカー型 L / Label / R 消込
 
-**特徴**:
-- フレーム解析可能
-- 手修正可能
-- 一時停止・中止可能
+Prototypeの検査画面で利用者が見る消込状態はFrontend側が中心です。
 
-**許可される操作**:
-- `POST /api/inspection/frame-analyze` - フレーム解析
-- `POST /api/inspection/session/{id}/rows/{line}/manual-edit` - 手修正
-- `POST /api/inspection/session/{id}/pause` - 一時停止
-- `POST /api/inspection/session/{id}/abort` - 中止
-- `POST /api/inspection/session/{id}/complete` - 完了
+## 5. OCR安定判定
 
-**遷移例**:
-```
-セッション開始
-  ↓
-[フレーム 1 解析]
-  ↓ (status: PENDING → OK)
-[フレーム 2 解析]
-  ↓ (status: PENDING → PENDING)
-[手修正] (status: PENDING → OK)
-  ↓
-[完了確認]
-  ↓
-IN_PROGRESS → COMPLETED
-```
+フレームごとの検出signatureを使って安定性を評価します。
 
-### 2. PAUSED (一時停止)
+- 安定カウントは `stability_count` に保持
+- `should_ocr` は安定条件と対象行の存在により決定
+- Backendのrow OCRは `should_ocr` 成立時に実行
 
-**特徴**:
-- フレーム解析不可
-- 手修正不可
-- 再開・中止のみ可能
+この安定判定は、FrontendのLabelアンカー消込とは別レイヤーです。
 
-**用途**:
-- 作業者が中断する必要がある場合
-- システムメンテナンス中
-- 検査対象の交換
+## 6. RuntimeRow
 
-**遷移**:
-```
-IN_PROGRESS →[pause]→ PAUSED
-                       ↓
-                   [resume]
-                       ↓
-                  IN_PROGRESS
+現行Backendの行は概ね次の情報を持ちます。
 
-PAUSED →[abort]→ ABORTED
+```text
+no
+line_no
+left_value
+right_value
+check_status
+ocr_text
+manual_final_status
+manual_edit_history
+updated_at
+created_at
 ```
 
-### 3. COMPLETED (完了)
+画面側の `tube_l / label / tube_r` 表示モデルとは名称が異なるため、Docsでは混同しないでください。
 
-**特徴**:
-- 最終状態 (遷移不可)
-- 作業者確認必須
-- データは永続保存
+## 7. セッションResponse
 
-**完了条件**:
-- `worker_confirmed = true` であること
-- すべての行の status が確定していること (PENDING がない)
+`InspectionSessionResponse` には主に次が含まれます。
 
-**遷移**:
-```
-IN_PROGRESS →[complete (worker_confirmed=true)]→ COMPLETED
-```
-
-### 4. ABORTED (中止)
-
-**特徴**:
-- 最終状態 (遷移不可)
-- 検査途中での中止
-- データは保持される (監査ログ用)
-
-**遷移**:
-```
-IN_PROGRESS →[abort]→ ABORTED
-PAUSED →[abort]→ ABORTED
+```text
+session_id
+operator_id
+status
+order_no
+serial_no
+terminal_name
+qr_text
+frame_index
+stability_count
+should_ocr
+target_row_no
+ocr_text
+detections
+ocr_results
+rows
+summary
+performance
 ```
 
-## フレーム解析後の状態変化
+## 8. 保存
 
-### 例: YOLO + OCR 実行時
+セッション開始・更新時にはSQLiteへsnapshot/rows/summaryを保存します。
 
-```
-入力: frame (JPEG)
+目的:
 
-実行フロー:
-1. YOLO 推論 → 物体検出結果
-2. OCR 推論 → 文字認識結果
-3. 判定ロジック実行
-   - 期待値と推論結果を比較
-   - status を PENDING → OK/NG に更新
-4. session.rows を更新
-5. セッションを SQLite に保存
+- Backend再起動後のセッション復元
+- 検査状態の保持
+- 将来の履歴・監査拡張の基盤
 
-出力:
-{
-  "session_id": "sess-abc",
-  "status": "IN_PROGRESS",  # 変わらず
-  "rows": [
-    {
-      "line_no": 1,
-      "status": "OK",        # PENDING → OK に更新
-      "note": "Auto-detected defect: confidence=0.95"
-    },
-    ...
-  ]
-}
-```
+ただしPrototypeでは、本番監査ログ・履歴保持期間・改ざん防止等の正式要件は未確定です。
 
-## エラーハンドリング
+## 9. operator確認
 
-### セッション不在
+フレーム処理では `operator_id` がセッション所有者と一致することを確認します。
+不一致時は `PermissionError` となりAPIでは403へ変換されます。
 
-```
-GET /api/inspection/session/sess-invalid
+Prototypeのログイン自体はモックであるため、この仕組みを本番認証・認可とみなしてはいけません。
 
-Response:
-Status 404
-{"detail": "session not found"}
-```
+## 10. 完了
 
-### 無効な状態遷移
+セッション完了時には作業者確認を要求します。
+完了後は `COMPLETED` として保存されます。
 
-```
-セッション status = "COMPLETED"
+Frontendでは別途、L / Label / R の全消込状態を使って検査完了可否を制御します。
 
-POST /api/inspection/session/{id}/pause
+## 11. Prototypeで注意する点
 
-Response:
-Status 403
-{"detail": "Cannot pause a completed session"}
-```
+1. Backendの `check_status` とFrontendの消込状態は別ロジック
+2. 認証はモック
+3. 検査履歴/監査要件は本番仕様未確定
+4. Label 90°補正はAPI層で追加される
+5. BBoxはOCR cropを回転しても元フレーム座標のまま
 
-### フレーム解析失敗
-
-```
-POST /api/inspection/frame-analyze
-(AI モデル未配置)
-
-Response:
-Status 503
-{"detail": "YOLO model not found"}
-```
-
-## データ永続化
-
-### SQLite スキーマ
-
-```sql
--- sessions テーブル
-CREATE TABLE sessions (
-  session_id TEXT PRIMARY KEY,
-  operator_id TEXT,
-  status TEXT,
-  order_no TEXT,
-  serial_no TEXT,
-  terminal_name TEXT,
-  created_at TIMESTAMP,
-  completed_at TIMESTAMP
-);
-
--- rows テーブル
-CREATE TABLE rows (
-  session_id TEXT,
-  line_no INTEGER,
-  item_code TEXT,
-  item_name TEXT,
-  expected_result TEXT,
-  status TEXT,
-  note TEXT,
-  PRIMARY KEY (session_id, line_no),
-  FOREIGN KEY (session_id) REFERENCES sessions(session_id)
-);
-```
-
-## セッション管理の実装 (session_manager.py)
-
-```python
-class SessionManager:
-    def start_session(self, request: StartInspectionRequest) -> InspectionSession:
-        """セッション開始"""
-        session_id = generate_session_id()
-        session = InspectionSession(
-            session_id=session_id,
-            operator_id=request.operator_id,
-            status="IN_PROGRESS",
-            ...
-        )
-        self.store.save_session(session)
-        return session
-    
-    def process_frame(self, session_id: str, frame_bytes: bytes) -> InspectionSession:
-        """フレーム解析"""
-        session = self.get_session(session_id)
-        if session.status != "IN_PROGRESS":
-            raise PermissionError("Session not in progress")
-        
-        # AI パイプライン実行
-        yolo_result, ocr_result = self.ai_pipeline.infer(frame_bytes)
-        
-        # 判定ロジック実行
-        updated_rows = self.judgement.judge(session.rows, yolo_result, ocr_result)
-        
-        # セッション更新
-        session.rows = updated_rows
-        self.store.save_session(session)
-        
-        return session
-    
-    def complete_session(self, session_id: str, worker_confirmed: bool) -> InspectionSession:
-        """セッション完了"""
-        session = self.get_session(session_id)
-        if not worker_confirmed:
-            raise ValueError("Worker confirmation required")
-        
-        session.status = "COMPLETED"
-        session.completed_at = datetime.now()
-        self.store.save_session(session)
-        
-        return session
-```
-
-## 監査ログ
-
-### 記録項目
-
-```python
-class AuditLog:
-    session_id: str
-    timestamp: datetime
-    event: str          # "session_start", "frame_analyze", "manual_edit", "complete"
-    operator_id: str
-    status_before: str
-    status_after: str
-    detail: dict        # イベント固有情報
-```
-
-### ログ記録例
-
-```json
-{
-  "session_id": "sess-abc123",
-  "timestamp": "2024-01-15T10:30:45Z",
-  "event": "frame_analyze",
-  "operator_id": "1234",
-  "status_before": "IN_PROGRESS",
-  "status_after": "IN_PROGRESS",
-  "detail": {
-    "frame_index": 1,
-    "yolo_ms": 100,
-    "ocr_ms": 145,
-    "row_updates": [{"line_no": 1, "status": "OK"}]
-  }
-}
-```
+この区別は保守時に特に重要です。
