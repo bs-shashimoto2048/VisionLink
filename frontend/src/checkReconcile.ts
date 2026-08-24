@@ -47,20 +47,29 @@ function isGoodStatus(status?: CheckDataStatus): boolean { return status === "OK
 
 function isSameRowBand(labelBox: Box, tubeBox: Box): boolean {
   const verticalDistance = Math.abs(centerY(labelBox) - centerY(tubeBox));
-  const tolerance = Math.max(labelBox.height, tubeBox.height) * 2.5;
+  const tolerance = Math.max(labelBox.height, tubeBox.height) * 3.5;
   const overlapsVertically = Math.max(labelBox.y, tubeBox.y) <= Math.min(labelBox.y + labelBox.height, tubeBox.y + tubeBox.height);
   return overlapsVertically || verticalDistance <= tolerance;
 }
 
-function nearestTube(labelBox: Box, tubes: Array<{ result: OCRResult; box: Box; text: string }>, side: "left" | "right", guideX: number) {
+function findMatchingTube(
+  labelBox: Box,
+  tubes: Array<{ result: OCRResult; box: Box; text: string }>,
+  side: "left" | "right",
+  expectedText: string
+) {
   const labelX = centerX(labelBox);
-  return tubes
+  const candidates = tubes
     .filter(({ box }) => {
       const x = centerX(box);
       if (!isSameRowBand(labelBox, box)) return false;
-      return side === "left" ? x < labelX && x < guideX : x > labelX && x >= guideX;
+      return side === "left" ? x < labelX : x > labelX;
     })
-    .sort((a, b) => Math.abs(centerX(a.box) - labelX) - Math.abs(centerX(b.box) - labelX))[0];
+    .sort((a, b) => Math.abs(centerX(a.box) - labelX) - Math.abs(centerX(b.box) - labelX));
+
+  // Labelとの対応関係は維持するが、最寄り1本だけで決めない。
+  // 同じ行・同じ側に期待線番が見えていれば、その候補を採用する。
+  return candidates.find((candidate) => candidate.text === expectedText);
 }
 
 export function reconcileCheckRows(args: {
@@ -70,7 +79,7 @@ export function reconcileCheckRows(args: {
   guideX: number;
   frameIndex?: number;
 }): CheckRow[] {
-  const { rows, yoloResults, ocrResults, guideX, frameIndex } = args;
+  const { rows, yoloResults, ocrResults, frameIndex } = args;
   const combinedResults: OCRResult[] = [...ocrResults];
 
   for (const detection of yoloResults) {
@@ -102,12 +111,12 @@ export function reconcileCheckRows(args: {
     const row = nextRows[rowIndex];
     if (row.completed || row.all_status === "OK") continue;
 
-    const left = nearestTube(label.box, tubes, "left", guideX);
-    const right = nearestTube(label.box, tubes, "right", guideX);
     const expectedLeft = normalizeCheckText(row.tube_l);
     const expectedRight = normalizeCheckText(row.tube_r);
-    const leftMatched = Boolean(left && expectedLeft && left.text === expectedLeft);
-    const rightMatched = Boolean(right && expectedRight && right.text === expectedRight);
+    const left = expectedLeft ? findMatchingTube(label.box, tubes, "left", expectedLeft) : undefined;
+    const right = expectedRight ? findMatchingTube(label.box, tubes, "right", expectedRight) : undefined;
+    const leftMatched = Boolean(left);
+    const rightMatched = Boolean(right);
     const nextLabelStatus: CheckDataStatus = "OK";
     const nextTubeLStatus: CheckDataStatus = isGoodStatus(row.tube_l_status) || leftMatched ? "OK" : (row.tube_l_status ?? "PENDING");
     const nextTubeRStatus: CheckDataStatus = isGoodStatus(row.tube_r_status) || rightMatched ? "OK" : (row.tube_r_status ?? "PENDING");
