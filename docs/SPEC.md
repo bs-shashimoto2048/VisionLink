@@ -1,171 +1,143 @@
-# システム仕様
+# VisionLink システム仕様（Prototype）
 
-## プロジェクト概要
+## 1. 概要
 
-**VisionLink** は、スマートフォンをエッジ端末として利用する検査支援 PWA アプリケーション PoC です。
+VisionLink は、端子台・配線検査をカメラ画像と AI で支援する Web アプリケーションです。
 
-- **環境**: React + TypeScript + Vite (Frontend), FastAPI + SQLite (Backend)
-- **対象**: 製造検査、品質検査など
-- **形式**: PWA (Progressive Web App) - インストール可能な Web アプリ
+2026-08-24 時点では **実機確認済みプロトタイプ** として扱います。
 
-## 主要機能
+- Frontend: React + TypeScript + Vite
+- Backend: FastAPI / Python
+- 物体検出: YOLO
+- OCR: PaddleOCR
+- 主用途: Label（端子番号）と左右 Tube（線番）の読取・対応付け・検査データとの照合
 
-### 1. 認証・ログイン
-- 従業員ID でのログイン
-- トークンベース認証 (モック実装)
+利用者向け操作は [USER_GUIDE.md](USER_GUIDE.md) を参照してください。
 
-### 2. 社内データ照合
-- QR コード / オーダーNo / シリアルNo で製品情報を検索
-- マスタデータとの照合 (現在はモック)
+## 2. 検査対象
 
-### 3. 検査セッション管理
-- セッション開始 → フレーム解析 → 完了の一連フロー
-- セッション中の一時停止・再開・中止機能
-- 作業者確認必須で完了
+### Label / nmb
 
-### 4. 画像フレーム解析
-- カメラからのリアルタイムキャプチャ
-- YOLO による物体検出 (不良品判定)
-- OCR による文字認識 (シリアル確認)
-- 推論結果の自動判定
+端子番号を表す検出対象です。VisionLink の行照合では Label をアンカーとして利用します。
 
-### 5. 判定結果管理
-- 自動判定の表示
-- 手修正機能 (作業者による上書き)
-- ステータス追跡 (PENDING → OK/NG)
+### Tube
 
-### 6. PWA 対応
-- モバイルデバイスへのインストール
-- オフライン時の基本機能保有
+端子左右の線番を表す検出対象です。Labelとの位置関係から左側・右側へ分類します。
 
-## 技術スタック
+## 3. 基本処理
 
-### Backend
-- **Framework**: FastAPI (Python 3.9+)
-- **Database**: SQLite
-- **AI**: PaddleOCR (YOLO, OCR)
-- **Server**: uvicorn
-- **HTTPS**: mkcert (自己署名証明書)
-
-### Frontend
-- **Framework**: React 18 + TypeScript
-- **Build Tool**: Vite
-- **Styling**: CSS Modules / Plain CSS
-- **PWA**: Service Worker + Manifest
-
-## ビジネスルール
-
-### 検査フロー
-
-1. **ログイン** → 従業員ID 入力
-2. **検査対象選択** → QR/オーダーNo でマスタ検索
-3. **セッション開始** → セッションID 生成
-4. **フレーム取得** → 複数枚の画像をキャプチャ
-5. **自動解析** → YOLO + OCR 実行
-6. **判定** → OK/NG 判定ロジック実行
-7. **確認・修正** → 作業者が結果を確認、必要に応じ手修正
-8. **完了確認** → 作業者が確認チェック
-
-### 判定ステータス
-
-| ステータス | 説明 |
-|-----------|------|
-| PENDING | 検査未実施 |
-| OK | 検査合格 |
-| NG | 検査不合格 |
-| OCR_FAILED | OCR 失敗 |
-| MISMATCH | データ不一致 |
-| MANUAL_FIXED | 手修正済み |
-
-### セッション状態
-
-| 状態 | 説明 | 遷移先 |
-|------|------|--------|
-| IN_PROGRESS | 検査中 | PAUSED, COMPLETED, ABORTED |
-| PAUSED | 一時停止 | IN_PROGRESS, ABORTED |
-| COMPLETED | 完了 | - |
-| ABORTED | 中止 | - |
-
-## データモデル
-
-### セッション
-
-```python
-class InspectionSession:
-    session_id: str          # UUID
-    operator_id: str         # 作業者ID
-    status: str              # IN_PROGRESS, PAUSED, COMPLETED, ABORTED
-    order_no: str            # 注文番号
-    serial_no: str           # シリアルNo
-    terminal_name: str       # 検査機器名
-    rows: List[InspectionRow]  # 検査項目
-    created_at: datetime
-    completed_at: Optional[datetime]
+```text
+Camera frame
+    ↓
+YOLO detection
+    ↓
+Label / Tube BBox
+    ↓
+OCR対象クロップ生成
+    ├─ 通常: 回転なし
+    ├─ L ON: 左Tubeクロップを180度回転
+    └─ Label ON: nmbクロップを左90度回転
+    ↓
+PaddleOCR
+    ↓
+Labelを基準に左右Tubeを行へ対応付け
+    ↓
+検査データと照合
+    ↓
+UIへ検出・OCR・検査結果を表示
 ```
 
-### 検査行
+## 4. OCR方向補正
 
-```python
-class InspectionRow:
-    line_no: int             # 行番号
-    item_code: str           # 品目コード
-    item_name: str           # 品目名
-    expected_result: str     # 期待値 (OK/NG)
-    status: str              # 検査結果ステータス
-    note: str                # 備考
+### 通常
+
+クロップ画像を回転せず OCR します。
+
+### L
+
+左側 Tube の実文字が上下逆の場合に使用します。
+
+- OCR対象: 左側 Tube
+- OCR用クロップ: **180度回転**
+- 元画像のBBox座標: 変更しない
+
+### Label
+
+nmb の実文字が右へ90度（時計回り）倒れている場合に使用します。
+
+- OCR対象: Label / nmb
+- OCR用クロップ: **左へ90度（反時計回り）回転**
+- 元画像のBBox座標: 変更しない
+- Label mode ON時は回転前OCRへフォールバックせず、補正後の結果を検査に使用する
+
+## 5. BBox表示
+
+- 回転なしの通常BBox: 水色系
+- L補正対象: Lモード用の識別表示
+- Label補正対象: オレンジ系
+- 回転補正対象の最上段BBox付近へ読取方向を示す矢印を表示する
+
+方向矢印は検査対象を隠しにくい位置・大きさ・透過性を前提とします。
+
+## 6. Labelアンカー方式
+
+端子番号 Label を1行の基準とし、その行に属する左右 Tube を決定します。
+
+隣接 Label が存在する場合、上下の Label との中間位置を行境界として使用します。
+
+```text
+   前Labelとの中間境界
+───────────────
+
+ 左Tube   [ Label ]   右Tube
+
+───────────────
+   次Labelとの中間境界
 ```
 
-### フレーム解析結果
+この行バンド内にある Tube 候補を左右位置から分類し、対象端子へ対応付けます。
 
-```python
-class FrameAnalyzeResponse:
-    session_id: str
-    frame_index: int
-    yolo_results: List[YOLODetection]   # 物体検出結果
-    ocr_results: List[OCRResult]         # 文字認識結果
-    rows: List[InspectionRow]           # 更新後の行データ
-    yolo_ms: int                        # YOLO 実行時間 (ms)
-    ocr_ms: int                         # OCR 実行時間 (ms)
-    total_ms: int                       # 総実行時間 (ms)
-```
+目的は次の2点です。
 
-## 非機能要件
+1. 同一端子内の多少の高さずれを許容する
+2. 隣接端子の線番を誤って消し込むことを抑える
 
-### パフォーマンス
-- フレーム解析: 300ms 以内
-  - YOLO: 100ms (目安)
-  - OCR: 150ms (目安)
-- API レスポンス: 1 秒以内
+## 7. UI要件
 
-### 信頼性
-- セッション永続化: SQLite で保存
-- エラーハンドリング: HTTP ステータスコードで適切に応答
-- AI モデル未配置時: 503 Service Unavailable を返す
+- 主要カメラ操作は `L / Label / Camera / Inspection` の4操作を固定的に扱う
+- ボタン状態変化やOCR結果更新で検査画面が大きく揺れないこと
+- nmb OCR結果を検査中も確認できること
+- L / Label の状態はボタン色・BBox・方向表示から識別できること
 
-### セキュリティ
-- CORS ホワイトリスト設定
-- 認証トークン付き API 呼び出し
-- HTTPS 通信 (ローカル開発用証明書)
+## 8. 検査データ
 
-### 可用性
-- PWA インストール対応
-- ローカルストレージキャッシュ
-- オフライン時の基本動作
+検査データは Backend が参照可能なデータルートから取得します。
 
-## 制約・想定
+環境依存の共有フォルダ等を使用する場合は `CHECK_DATA_ROOT` 環境変数で明示的に設定することを推奨します。
 
-- **開発環境**: Windows 10/11
-- **実行環境**: ローカルネットワーク
-- **カメラ**: スマートフォンの背面カメラ
-- **ブラウザ**: Chrome / Safari (iOS 13+)
-- **画像フォーマット**: JPEG / PNG
-- **フレーム解析**: モデル推論で 300ms 程度を想定
+リポジトリへ特定PC・特定共有サーバー専用のパスを恒久仕様として埋め込まないことを基本方針とします。
 
-## 今後の拡張
+## 9. プロトタイプの品質位置づけ
 
-1. 実 YOLO / OCR モデル連携
-2. QR コード読取エンジン搭載
-3. 認証の本実装
-4. マスタデータ API 連携
-5. 監査ログ強化
-6. オフライン時キュー機能
+本版は以下を目的とするプロトタイプです。
+
+- 実カメラによる検出確認
+- Label / Tube OCR の成立性確認
+- 方向補正の有効性確認
+- Labelアンカー方式による左右線番照合の成立性確認
+- 検査UIの操作性確認
+
+AI結果のみで製品品質を保証する本番システムとしては扱いません。
+
+## 10. 本番化前に必要な検討
+
+- OCR / 検出精度の定量評価
+- 誤検出・未検出時の運用
+- 検査履歴・監査性
+- 認証・権限管理
+- 設定値・モデル・検査データの版管理
+- 障害時の復旧手順
+- 本番端末・カメラ・ネットワーク構成の固定
+- セキュリティレビュー
+
+未対応事項は [TODO.md](TODO.md) へ記録します。
