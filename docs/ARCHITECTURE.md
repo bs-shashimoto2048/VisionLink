@@ -1,156 +1,165 @@
-# アーキテクチャ
+# VisionLink アーキテクチャ（Prototype）
 
-## 全体構成
+## 1. 全体構成
 
-VisionLink は frontend と backend に分離された PWA アプリケーションです。
-
-```
-┌─────────────────────┐
-│   Frontend (PWA)    │
-│  React + TypeScript │
-│ (Camera + UI)       │
-└──────────┬──────────┘
-           │
-           │ HTTPS/HTTP
-           │
-┌──────────▼──────────┐
-│  Backend API        │
-│  FastAPI + SQLite   │
-│  (Sessions, Logic)  │
-└──────────┬──────────┘
-           │
-     ┌─────┴──────┬──────────┬──────────┐
-     │            │          │          │
-  YOLO         OCR     Internal DB    Services
-  Models       Engines   Lookup
-(PaddleOCR)  (PaddleOCR)  (Mock)
-```
-
-## Backend 構造
-
-```
-backend/
-├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI アプリ初期化
-│   ├── api.py               # API ルータ定義
-│   ├── config.py            # 設定管理
-│   ├── db.py                # SQLite データベース
-│   ├── schemas.py           # Pydantic スキーマ
-│   └── services/
-│       ├── ai_pipeline.py   # AI モデル実行エンジン
-│       ├── session_manager.py   # セッション管理
-│       ├── judgement.py      # 判定ロジック
-│       ├── internal_data.py  # 社内データ照合
-│       ├── store.py          # データストア
-│       ├── stability.py      # 安定性関連
-│       └── mock_ai.py        # AI モック
-├── scripts/
-│   ├── run_https.py         # HTTPS 起動
-│   └── setup_https.py       # 証明書生成
-├── certs/                   # 証明書フォルダ
-└── requirements.txt
+```text
+┌────────────────────────────┐
+│ Frontend                   │
+│ React + TypeScript + Vite  │
+│ Camera / Overlay / UI      │
+└─────────────┬──────────────┘
+              │ HTTP(S) / API
+              ▼
+┌────────────────────────────┐
+│ Backend                    │
+│ FastAPI                    │
+│ Session / Inspection Logic│
+└───────┬─────────┬──────────┘
+        │         │
+        ▼         ▼
+     YOLO      PaddleOCR
+   Detection   Recognition
+        │         │
+        └────┬────┘
+             ▼
+     Reconciliation
+ Label anchor / L-Label-R
+             │
+             ▼
+       Inspection result
 ```
 
-## Frontend 構造
+Frontend はカメラ取得と可視化、Backend は検出・OCR・照合を担当します。
 
-```
-frontend/
-├── index.html
-├── package.json
-├── tsconfig.json
-├── vite.config.ts           # Vite 設定 (proxy)
-├── public/
-│   ├── manifest.webmanifest # PWA マニフェスト
-│   └── sw.js                # Service Worker
-├── scripts/
-│   └── setup-https.mjs      # HTTPS 証明書生成
-├── certs/                   # 証明書フォルダ
-└── src/
-    ├── main.tsx             # エントリポイント
-    ├── App.tsx              # メインコンポーネント
-    ├── api.ts               # API クライアント
-    ├── camera.ts            # カメラ制御
-    ├── types.ts             # TypeScript 型定義
-    ├── styles.css           # スタイル
-    └── vite-env.d.ts        # Vite 型定義
-```
+## 2. AI処理の責務分離
 
-## データフロー
+### YOLO
 
-### 検査フロー
+元画像から Label / nmb / Tube 等の対象を検出し、元画像座標のBBoxを生成します。
 
-```
-1. ログイン
-   Frontend → [POST /api/auth/login] → Backend
-   
-2. データ照合
-   Frontend → [POST /api/internal-data/lookup] → Backend
-   
-3. セッション開始
-   Frontend → [POST /api/inspection/session/start] → Backend
-   Backend: Session 生成 → SQLite に保存
-   
-4. フレーム解析 (繰り返し)
-   Frontend: カメラキャプチャ → Backend
-   Backend:
-     a) YOLO 推論 (物体検出)
-     b) OCR 推論 (文字認識)
-     c) 判定ロジック (OK/NG 判定)
-     d) Session 更新
-   Frontend: 結果表示
-   
-5. 手修正
-   Frontend → [POST /api/inspection/session/{id}/rows/{line}/manual-edit] → Backend
-   Backend: 判定結果を上書き
-   
-6. 検査完了
-   Frontend → [POST /api/inspection/session/{id}/complete] → Backend
-   Backend: Session 完了、作業者確認必須
+### OCR
+
+YOLO BBoxからクロップを生成し、必要に応じて方向補正して PaddleOCR へ渡します。
+
+### Reconciliation
+
+Labelをアンカーとして1端子分の行バンドを構成し、左右Tube OCR結果を対応付けます。
+
+## 3. 方向補正と座標系
+
+重要な設計原則は **検出座標とOCR画像方向を分離する** ことです。
+
+```text
+Original frame
+    │
+    ├─ BBox coordinates ─────────→ UI overlay
+    │
+    └─ crop
+         │
+         ├─ normal
+         ├─ rotate 180° (L)
+         └─ rotate 90° CCW (Label)
+                │
+                ▼
+              OCR
 ```
 
-## サービス層の責務
+OCR用クロップを回転しても元画像上のBBoxは変更しません。
 
-| サービス | 責務 |
-|---------|------|
-| `session_manager.py` | セッション生成、状態管理、フレーム処理の統合 |
-| `ai_pipeline.py` | YOLO / OCR モデルの実行、推論 |
-| `judgement.py` | 検査結果の判定ロジック |
-| `internal_data.py` | 社内マスタデータの照合 |
-| `store.py` | データベース保存、ログ記録 |
-| `stability.py` | 安定性機能 (タイムアウトなど) |
-| `mock_ai.py` | AI のモック実装 |
+これにより、UI上の検出位置とAI内部の文字方向補正を独立して扱えます。
 
-## セキュリティ
+## 4. Frontendの責務
 
-- **CORS**: フロントエンド URL でホワイトリスト設定
-- **認証**: 現在はモック (employee_id ベース)
-- **HTTPS**: ローカル開発用自動証明書生成
-- **サニタイズ**: 入力値の検証
+- カメラ開始・停止
+- 検査開始・停止
+- Lモードの切替
+- Labelモードの切替
+- フレーム送信
+- YOLO BBox描画
+- OCR結果表示
+- 読取方向矢印表示
+- 検査結果表示
+- UIレイアウトの安定化
 
-## 設計方針
+主要操作は `L / Label / Camera / Inspection` を基本とします。
 
-1. **分離の原則**
-   - Frontend/Backend 分離で将来クラウド化対応
-   - AI 処理を services に分離で実装差し替え容易
-   
-2. **一時性**
-   - 画像フレームは永続保存せず（検査完了後は破棄）
-   - セッション単位の管理
-   
-3. **確認必須**
-   - 検査完了時は作業者確認を必須化
-   - 判定結果を手修正可能
-   
-4. **拡張性**
-   - AI モデルはプラグイン化
-   - ビジネスロジックは services に集約
+## 5. Backendの責務
 
-## 外部依存
+- 検査データの取得
+- 検査セッション管理
+- フレーム受信
+- YOLO推論
+- OCR対象クロップ生成
+- L / Label 方向補正
+- PaddleOCR推論
+- OCR安定化
+- Labelアンカー方式による行構成
+- 左右Tube対応付け
+- 期待値との照合
+- Frontendへ結果返却
 
-| 項目 | 現状 | 備考 |
-|------|------|------|
-| YOLO | PaddleOCR TrmRead | 物体検出用 |
-| OCR | PaddleOCR | 文字認識用 |
-| 認証 | モック | 本実装必要 |
-| マスタデータ | モック | API 連携必要 |
+## 6. Labelアンカー行構成
+
+```text
+             Frame Y
+               ↓
+ Label 1  ─────────
+          boundary
+ Label 2  ─────────  ← row band
+          boundary
+ Label 3  ─────────
+```
+
+Label中心間の中間位置を行境界とし、各行バンド内のTubeをLabelの左右へ割り当てます。
+
+この設計により、単純な固定距離判定より撮影角度や位置ずれへ追従しやすくします。
+
+## 7. データフロー
+
+```text
+1. Frontendが検査対象を選択
+2. Backendが検査データを取得
+3. Camera開始
+4. FrontendがフレームをBackendへ送信
+5. BackendでYOLO検出
+6. BBoxからOCRクロップ生成
+7. L / Label設定に応じ方向補正
+8. PaddleOCR
+9. OCR安定化
+10. LabelアンカーでL / Label / Rを構成
+11. 期待値と照合
+12. Frontendへ結果返却
+13. FrontendがBBox・OCR・検査結果を描画
+```
+
+## 8. 設定
+
+環境依存値は可能な限り設定として外出しします。
+
+代表例:
+
+- `CHECK_DATA_ROOT`: 検査データのルート
+- CORS許可Origin
+- AIモデルパス
+- OCR / 検出関連閾値
+
+特定PCや共有フォルダ専用の値を一般仕様として固定しないことを推奨します。
+
+## 9. Prototype境界
+
+現在の構成は実機検証を優先したプロトタイプです。
+
+本番化では以下を別途設計対象とします。
+
+- 認証・認可
+- 監査ログ
+- 検査履歴の保存方針
+- モデル版管理
+- 設定版管理
+- 障害復旧
+- ネットワーク境界
+- セキュリティ
+- 配布・更新方法
+- 精度評価基盤
+
+詳細は [TODO.md](TODO.md) を参照してください。
