@@ -84,6 +84,7 @@ export interface OCRResult {
   source?: string | null;
   rotated?: boolean;
   rotation_deg?: number;
+  rotation_mode?: "none" | "left_tube" | "label" | null;
   side?: string | null;
   role?: string | null;
 }
