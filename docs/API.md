@@ -1,33 +1,32 @@
-# API 仕様
+# VisionLink API リファレンス（Prototype）
 
-## 概要
+この文書は VisionLink Prototype の `backend/app/api.py` を基準にした API リファレンスです。
+利用者向け操作は [USER_GUIDE.md](USER_GUIDE.md)、システム全体は [ARCHITECTURE.md](ARCHITECTURE.md) を参照してください。
 
-VisionLink バックエンド API は FastAPI で構築された RESTful API です。認証、検査セッション管理、画像フレーム解析、社内データ照合などのエンドポイントを提供します。
+## 1. 基本情報
 
-## エンドポイント
+- Base path: `/api`
+- Backend: FastAPI
+- フレーム解析: `multipart/form-data`
+- セッション系レスポンス: `InspectionSessionResponse`
+- Prototype の認証は社員番号4桁を使うモック実装です
 
-### ヘルスチェック
+## 2. Health
 
-```
-GET /api/health
-```
+### `GET /api/health`
 
-Response:
 ```json
 {
   "status": "ok"
 }
 ```
 
-### 認証
+## 3. Login
 
-#### ログイン
-
-```
-POST /api/auth/login
-```
+### `POST /api/auth/login`
 
 Request:
+
 ```json
 {
   "employee_id": "1234"
@@ -35,6 +34,7 @@ Request:
 ```
 
 Response:
+
 ```json
 {
   "employee_id": "1234",
@@ -44,215 +44,120 @@ Response:
 }
 ```
 
-**備考**: 現在はモック実装です。本実装が必要です。
+`employee_id` は4桁数字です。Prototype では実認証基盤とは接続していません。
 
-### 社内データ照合
+## 4. 検査データ選択
 
-#### データ検索
+### `GET /api/check-data/serials`
 
-```
-POST /api/internal-data/lookup
-```
+利用可能な製番一覧を返します。
 
-Request:
 ```json
 {
-  "qr_text": "QR-001",
-  "order_no": "ORD-2024-001",
-  "serial_no": "SN-12345",
-  "terminal_name": "Terminal-A"
+  "serials": ["A1AA0001"]
 }
 ```
 
-Response:
+### `GET /api/check-data/boards?serial={serial}`
+
+指定製番の盤番号一覧を返します。
+
+### `GET /api/check-data/terminals?serial={serial}&board={board}`
+
+指定製番・盤番号の端子台一覧を返します。
+
+### `GET /api/check-data/table?serial={serial}&board={board}&terminal={terminal}`
+
+検査テーブルを返します。
+
 ```json
 {
-  "order_no": "ORD-2024-001",
-  "serial_no": "SN-12345",
-  "terminal_name": "Terminal-A",
+  "serial": "A1AA0001",
+  "board": "...",
+  "terminal": "...",
   "rows": [
     {
-      "line_no": 1,
-      "item_code": "ITEM-001",
-      "item_name": "Component A",
-      "expected_result": "OK",
-      "status": "PENDING",
-      "note": ""
+      "tube_l": "101",
+      "label": "1",
+      "tube_r": "101",
+      "left_status": "PENDING",
+      "confirm_status": "PENDING",
+      "all_status": "PENDING"
     }
   ]
 }
 ```
 
-### 検査セッション
+主なエラー:
 
-#### セッション開始
+| HTTP | 内容 |
+|---|---|
+| 400 | 指定値・CSV構造が不正 |
+| 404 | CSVが見つからない |
+| 503 | 共有サーバー/検査データルートへアクセスできない |
 
-```
-POST /api/inspection/session/start
-```
+## 5. 内部データ照合
+
+### `POST /api/internal-data/lookup`
 
 Request:
+
 ```json
 {
-  "operator_id": "1234",
-  "qr_text": "QR-001",
-  "order_no": "ORD-2024-001",
-  "serial_no": "SN-12345",
-  "terminal_name": "Terminal-A"
+  "qr_text": null,
+  "order_no": null,
+  "serial_no": "A1AA0001",
+  "terminal_name": "TB1"
 }
 ```
 
-Response:
+Response は `source / order_no / serial_no / terminal_name / rows` を持ちます。
+Prototypeでは検査画面の主導線は `check-data` 系です。内部データ照合は将来連携を見据えた別経路として残しています。
+
+## 6. 検査セッション
+
+### `POST /api/inspection/session/start`
+
+Request:
+
 ```json
 {
-  "session_id": "sess-abc123",
   "operator_id": "1234",
-  "status": "IN_PROGRESS",
-  "order_no": "ORD-2024-001",
-  "serial_no": "SN-12345",
-  "terminal_name": "Terminal-A",
-  "rows": [...],
-  "created_at": "2024-01-01T12:00:00Z",
-  "completed_at": null
+  "qr_text": null,
+  "order_no": null,
+  "serial_no": "A1AA0001",
+  "terminal_name": "TB1"
 }
 ```
 
-#### セッション取得
+新しいセッションを作成し、`session_id` を返します。
 
-```
-GET /api/inspection/session/{session_id}
-```
+### `GET /api/inspection/session/{session_id}`
 
-Response: セッション情報 (開始と同じスキーマ)
+保存済みまたはメモリ上のセッション状態を取得します。
 
-#### セッション制御
-
-##### 一時停止
-
-```
-POST /api/inspection/session/{session_id}/pause
-```
+### `POST /api/inspection/session/{session_id}/pause`
 
 Request:
+
 ```json
 {
   "employee_id": "1234"
 }
 ```
 
-Response: セッション情報 (status: PAUSED)
+### `POST /api/inspection/session/{session_id}/resume`
 
-##### 再開
+Request は pause と同じです。
 
-```
-POST /api/inspection/session/{session_id}/resume
-```
+### `POST /api/inspection/session/{session_id}/abort`
 
-Request:
-```json
-{
-  "employee_id": "1234"
-}
-```
+Request は pause と同じです。
 
-Response: セッション情報 (status: IN_PROGRESS)
-
-##### 中止
-
-```
-POST /api/inspection/session/{session_id}/abort
-```
+### `POST /api/inspection/session/{session_id}/complete`
 
 Request:
-```json
-{
-  "employee_id": "1234"
-}
-```
 
-Response: セッション情報 (status: ABORTED)
-
-### フレーム解析
-
-#### 画像フレーム解析
-
-```
-POST /api/inspection/frame-analyze
-Content-Type: multipart/form-data
-```
-
-Request Parameters:
-- `session_id`: セッション ID (string)
-- `operator_id`: 作業者 ID (string)
-- `frame_index`: フレームインデックス (integer, default: 0)
-- `yolo_confidence_threshold`: YOLO 信頼度閾値 (float, default: 0.25)
-- `ocr_confidence_threshold`: OCR 信頼度閾値 (float, default: 0.5)
-- `frame`: 画像ファイル (binary, JPEG/PNG)
-
-Response:
-```json
-{
-  "session_id": "sess-abc123",
-  "frame_index": 1,
-  "yolo_results": [
-    {
-      "class_id": 0,
-      "class_name": "defect",
-      "confidence": 0.95,
-      "bbox": [100, 100, 200, 200]
-    }
-  ],
-  "ocr_results": [
-    {
-      "text": "ABC-123",
-      "confidence": 0.88,
-      "bbox": [50, 50, 150, 100]
-    }
-  ],
-  "rows": [
-    {
-      "line_no": 1,
-      "item_code": "ITEM-001",
-      "item_name": "Component A",
-      "expected_result": "OK",
-      "status": "OK",
-      "note": "Automatic detection"
-    }
-  ],
-  "yolo_ms": 100,
-  "ocr_ms": 150,
-  "total_ms": 250
-}
-```
-
-### 手修正
-
-#### 行の手修正
-
-```
-POST /api/inspection/session/{session_id}/rows/{line_no}/manual-edit
-```
-
-Request:
-```json
-{
-  "operator_id": "1234",
-  "final_status": "OK",
-  "note": "Manually confirmed"
-}
-```
-
-Response: セッション情報
-
-### セッション完了
-
-#### 検査完了
-
-```
-POST /api/inspection/session/{session_id}/complete
-```
-
-Request:
 ```json
 {
   "operator_id": "1234",
@@ -260,35 +165,129 @@ Request:
 }
 ```
 
-Response: セッション情報 (status: COMPLETED)
+Prototype のUIでは全行消込後に作業者確認を行って完了します。
 
-## ステータスコード
+## 7. フレーム解析
 
-| コード | 説明 |
-|--------|------|
-| 200 | OK |
-| 400 | Bad Request |
-| 403 | Forbidden (権限不足) |
-| 404 | Not Found |
-| 500 | Internal Server Error |
-| 503 | Service Unavailable (AI モデル未配置など) |
+### `POST /api/inspection/frame-analyze`
 
-## 判定ステータス
+Content-Type: `multipart/form-data`
 
-| ステータス | 説明 |
-|-----------|------|
-| OK | 検査OK |
-| NG | 検査NG |
-| PENDING | 検査待ち |
-| OCR_FAILED | OCR失敗 |
-| MISMATCH | データ不一致 |
-| MANUAL_FIXED | 手修正済み |
+| Form field | 型 | 既定値 | 内容 |
+|---|---:|---:|---|
+| `session_id` | string | 必須 | セッションID |
+| `operator_id` | string | 必須 | 作業者ID |
+| `frame_index` | int | 0 | フレーム番号 |
+| `yolo_confidence_threshold` | float | 0.6 | YOLO閾値 |
+| `ocr_confidence_threshold` | float | 0.6 | OCR閾値 |
+| `rotate_left_tube_ocr` | bool | false | L: 左側TubeをOCR前に180°補正 |
+| `rotate_label_ocr` | bool | false | Label: nmb cropをOCR前に左90°補正 |
+| `frame` | file | 必須 | JPEG等のフレーム画像 |
 
-## セッション状態
+### 回転仕様
 
-| 状態 | 説明 |
-|------|------|
-| IN_PROGRESS | 検査中 |
-| PAUSED | 一時停止中 |
-| COMPLETED | 検査完了 |
-| ABORTED | 検査中止 |
+#### `rotate_left_tube_ocr=true`
+
+- 対象: 左側のTube
+- OCR用crop: 180°回転
+- 元フレーム: 回転しない
+- YOLO BBox: 回転しない
+- OCR結果: `rotated=true`, `rotation_deg=180`
+
+#### `rotate_label_ocr=true`
+
+前提は「nmb数字が画面上で右へ90°倒れている」状態です。
+
+- 対象: nmb / Label
+- OCR用crop: 左へ90°回転して正立化
+- 元フレーム: 回転しない
+- YOLO BBox: 回転しない
+- OCR結果: `rotated=true`, `rotation_deg=-90`, `rotation_mode="label"`
+- Label ON中は未回転nmb結果を検査へフォールバックしません
+
+### 主なResponseフィールド
+
+```json
+{
+  "session_id": "...",
+  "operator_id": "1234",
+  "status": "IN_PROGRESS",
+  "frame_index": 10,
+  "stability_count": 2,
+  "should_ocr": true,
+  "target_row_no": 1,
+  "ocr_text": "1",
+  "detections": [],
+  "ocr_results": [],
+  "rows": [],
+  "summary": {},
+  "performance": {
+    "yolo_ms": 20,
+    "ocr_ms": 80,
+    "total_ms": 100
+  }
+}
+```
+
+### `OCRResult`
+
+| Field | 内容 |
+|---|---|
+| `text` | OCR文字列 |
+| `confidence` | OCR確信度 |
+| `bbox` | 元フレーム上の `[x, y, width, height]` |
+| `source` | OCR経路 |
+| `rotated` | OCR用cropを回転したか |
+| `rotation_deg` | 0 / 180 / -90 |
+| `rotation_mode` | Label回転時は `label` |
+| `label` | YOLOクラス名 |
+| `side` | left/right等 |
+| `role` | tube/label等 |
+
+> `bbox` はOCR cropの回転後サイズではありません。常に元カメラ画像上のYOLO検出BBoxです。
+
+## 8. 手修正
+
+### `POST /api/inspection/session/{session_id}/rows/{line_no}/manual-edit`
+
+Request:
+
+```json
+{
+  "operator_id": "1234",
+  "final_status": "OK",
+  "note": "manual confirmation"
+}
+```
+
+Backendのセッション行に対する手修正APIです。現在の主UI消込はFrontendの `checkReconcile.ts` による L / Label / R 判定が中心です。
+
+## 9. ステータス
+
+### CheckStatus
+
+- `OK`
+- `NG`
+- `PENDING`
+- `OCR_FAILED`
+- `MISMATCH`
+- `MANUAL_FIXED`
+
+### SessionStatus
+
+- `IN_PROGRESS`
+- `PAUSED`
+- `COMPLETED`
+- `ABORTED`
+
+## 10. エラー
+
+| HTTP | 主な意味 |
+|---|---|
+| 400 | 入力不正、完了条件未達等 |
+| 403 | operator不一致、状態遷移不可等 |
+| 404 | セッション/CSVが存在しない |
+| 500 | 予期しないフレーム解析失敗 |
+| 503 | AIモデル、共有データ、OCR依存等の利用不可 |
+
+FastAPIのSwagger UIも実行中Backendから確認できますが、本書はPrototypeの実装意図を補足するための正式Docsとして維持します。
