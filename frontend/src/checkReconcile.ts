@@ -13,6 +13,8 @@ function getOcrText(result: OCRResult | undefined): string {
 }
 
 type Box = { x: number; y: number; width: number; height: number };
+type OCRItem = { result: OCRResult; box: Box; text: string };
+type RowBand = { top: number; bottom: number };
 
 function getBox(result: OCRResult | undefined): Box | null {
   const bbox = result?.bbox;
@@ -45,30 +47,78 @@ function isTubeDetection(value: { label?: string | null; class_name?: string | n
 
 function isGoodStatus(status?: CheckDataStatus): boolean { return status === "OK"; }
 
-function isSameRowBand(labelBox: Box, tubeBox: Box): boolean {
-  const verticalDistance = Math.abs(centerY(labelBox) - centerY(tubeBox));
-  const tolerance = Math.max(labelBox.height, tubeBox.height) * 3.5;
-  const overlapsVertically = Math.max(labelBox.y, tubeBox.y) <= Math.min(labelBox.y + labelBox.height, tubeBox.y + tubeBox.height);
-  return overlapsVertically || verticalDistance <= tolerance;
+function uniqueLabelsByPosition(labels: OCRItem[]): OCRItem[] {
+  const sorted = [...labels].sort((a, b) => centerY(a.box) - centerY(b.box));
+  const unique: OCRItem[] = [];
+  for (const label of sorted) {
+    const duplicate = unique.some((existing) =>
+      Math.abs(centerX(existing.box) - centerX(label.box)) < 0.0001 &&
+      Math.abs(centerY(existing.box) - centerY(label.box)) < 0.0001
+    );
+    if (!duplicate) unique.push(label);
+  }
+  return unique;
+}
+
+function rowBandForLabel(label: OCRItem, labels: OCRItem[]): RowBand {
+  const ordered = uniqueLabelsByPosition(labels);
+  const currentY = centerY(label.box);
+  const index = ordered.findIndex((candidate) =>
+    Math.abs(centerX(candidate.box) - centerX(label.box)) < 0.0001 &&
+    Math.abs(centerY(candidate.box) - currentY) < 0.0001
+  );
+
+  if (index < 0 || ordered.length === 1) {
+    const fallbackHalfHeight = label.box.height * 3.5;
+    return { top: currentY - fallbackHalfHeight, bottom: currentY + fallbackHalfHeight };
+  }
+
+  const previous = index > 0 ? ordered[index - 1] : undefined;
+  const next = index < ordered.length - 1 ? ordered[index + 1] : undefined;
+  const previousY = previous ? centerY(previous.box) : undefined;
+  const nextY = next ? centerY(next.box) : undefined;
+
+  let top: number;
+  let bottom: number;
+
+  if (previousY != null) {
+    top = (previousY + currentY) / 2;
+  } else if (nextY != null) {
+    top = currentY - (nextY - currentY) / 2;
+  } else {
+    top = currentY - label.box.height * 3.5;
+  }
+
+  if (nextY != null) {
+    bottom = (currentY + nextY) / 2;
+  } else if (previousY != null) {
+    bottom = currentY + (currentY - previousY) / 2;
+  } else {
+    bottom = currentY + label.box.height * 3.5;
+  }
+
+  return { top, bottom };
 }
 
 function findMatchingTube(
-  labelBox: Box,
-  tubes: Array<{ result: OCRResult; box: Box; text: string }>,
+  label: OCRItem,
+  labels: OCRItem[],
+  tubes: OCRItem[],
   side: "left" | "right",
   expectedText: string
 ) {
-  const labelX = centerX(labelBox);
+  const labelX = centerX(label.box);
+  const band = rowBandForLabel(label, labels);
   const candidates = tubes
     .filter(({ box }) => {
       const x = centerX(box);
-      if (!isSameRowBand(labelBox, box)) return false;
+      const y = centerY(box);
+      const inRowBand = y >= band.top && y < band.bottom;
+      if (!inRowBand) return false;
       return side === "left" ? x < labelX : x > labelX;
     })
     .sort((a, b) => Math.abs(centerX(a.box) - labelX) - Math.abs(centerX(b.box) - labelX));
 
-  // Labelとの対応関係は維持するが、最寄り1本だけで決めない。
-  // 同じ行・同じ側に期待線番が見えていれば、その候補を採用する。
   return candidates.find((candidate) => candidate.text === expectedText);
 }
 
@@ -95,13 +145,13 @@ export function reconcileCheckRows(args: {
   }
 
   const rowLabels = new Set(rows.map((row) => normalizeCheckText(row.label)).filter(Boolean));
-  const labels = combinedResults
+  const labels: OCRItem[] = combinedResults
     .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
-    .filter((item): item is { result: OCRResult; box: Box; text: string } => Boolean(item.box && item.text))
+    .filter((item): item is OCRItem => Boolean(item.box && item.text))
     .filter(({ result, text }) => isLabelDetection(result) || rowLabels.has(text));
-  const tubes = combinedResults
+  const tubes: OCRItem[] = combinedResults
     .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
-    .filter((item): item is { result: OCRResult; box: Box; text: string } => Boolean(item.box && item.text))
+    .filter((item): item is OCRItem => Boolean(item.box && item.text))
     .filter(({ result }) => isTubeDetection(result));
 
   const nextRows = rows.map((row): CheckRow => ({ ...row }));
@@ -113,17 +163,30 @@ export function reconcileCheckRows(args: {
 
     const expectedLeft = normalizeCheckText(row.tube_l);
     const expectedRight = normalizeCheckText(row.tube_r);
-    const left = expectedLeft ? findMatchingTube(label.box, tubes, "left", expectedLeft) : undefined;
-    const right = expectedRight ? findMatchingTube(label.box, tubes, "right", expectedRight) : undefined;
+    const left = expectedLeft ? findMatchingTube(label, labels, tubes, "left", expectedLeft) : undefined;
+    const right = expectedRight ? findMatchingTube(label, labels, tubes, "right", expectedRight) : undefined;
     const leftMatched = Boolean(left);
     const rightMatched = Boolean(right);
     const nextLabelStatus: CheckDataStatus = "OK";
     const nextTubeLStatus: CheckDataStatus = isGoodStatus(row.tube_l_status) || leftMatched ? "OK" : (row.tube_l_status ?? "PENDING");
     const nextTubeRStatus: CheckDataStatus = isGoodStatus(row.tube_r_status) || rightMatched ? "OK" : (row.tube_r_status ?? "PENDING");
     const completed = nextLabelStatus === "OK" && nextTubeLStatus === "OK" && nextTubeRStatus === "OK";
+    const band = rowBandForLabel(label, labels);
 
     nextRows[rowIndex] = { ...row, label_status: nextLabelStatus, tube_l_status: nextTubeLStatus, tube_r_status: nextTubeRStatus, left_status: nextTubeLStatus, confirm_status: completed ? "OK" : (row.confirm_status ?? "PENDING"), all_status: completed ? "OK" : (row.all_status ?? "PENDING"), completed };
-    console.debug("[VisionLink] label anchored reconcile", { frameIndex, label: label.text, rowIndex, left: left?.text, expectedLeft, leftMatched, right: right?.text, expectedRight, rightMatched, completed });
+    console.debug("[VisionLink] label anchored reconcile", {
+      frameIndex,
+      label: label.text,
+      rowIndex,
+      band,
+      left: left?.text,
+      expectedLeft,
+      leftMatched,
+      right: right?.text,
+      expectedRight,
+      rightMatched,
+      completed,
+    });
   }
   return nextRows;
 }
