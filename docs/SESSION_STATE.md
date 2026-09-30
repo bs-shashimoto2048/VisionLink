@@ -18,6 +18,7 @@ VisionLink Backendは検査処理をセッション単位で管理します。
 - 最新YOLO detections
 - 最新OCR results
 - 作業者確認状態
+- 端子ごとの目視確認状態
 - performance
 - 作成/更新/完了日時
 
@@ -139,6 +140,7 @@ ocr_results
 rows
 summary
 performance
+manual_confirmations
 ```
 
 ## 8. 保存
@@ -167,9 +169,18 @@ Prototypeのログイン自体はモックであるため、この仕組みを�
 
 Frontendでは別途、L / Label / R の全消込状態を使って検査完了可否を制御します。
 
+各端子は次のどちらかで完了扱いになります。
+
+- AUTO: L / Label / R がすべてAI/OCRでOK
+- MANUAL: 作業者が実物と検査データを目視照合し、端子単位で確認済み
+
+目視確認は L / Label / R の判定値を上書きしません。現在状態は `inspection_manual_confirmations`、追加・解除操作は `inspection_manual_confirmation_events` へ追記します。
+
+端子台全体の完了時は `inspection_history` に1件の親履歴、`inspection_history_rows` に全端子の結果を保存します。各端子には `AUTO / MANUAL` の完了方法を保持します。
+
 ## 11. Prototypeで注意する点
 
-1. Backendの `check_status` とFrontendの消込状態は別ロジック
+1. Backendの `check_status` とFrontendの消込状態は別ロジック。完了時にはFrontendの最終消込スナップショットをBackendが検証して履歴化する
 2. 認証はモック
 3. 検査履歴/監査要件は本番仕様未確定
 4. Label 90°補正はAPI層で追加される
