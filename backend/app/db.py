@@ -57,6 +57,62 @@ def init_db() -> None:
                 UNIQUE(session_id, no),
                 FOREIGN KEY(session_id) REFERENCES inspection_sessions(session_id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS inspection_manual_confirmations (
+                session_id TEXT NOT NULL,
+                row_index INTEGER NOT NULL,
+                label TEXT NOT NULL,
+                confirmed INTEGER NOT NULL DEFAULT 0,
+                confirmed_by TEXT,
+                confirmed_at TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY(session_id, row_index),
+                FOREIGN KEY(session_id) REFERENCES inspection_sessions(session_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS inspection_manual_confirmation_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                row_index INTEGER NOT NULL,
+                label TEXT NOT NULL,
+                action TEXT NOT NULL,
+                operator_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES inspection_sessions(session_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS inspection_history (
+                history_id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL UNIQUE,
+                serial_no TEXT NOT NULL,
+                board_no TEXT NOT NULL,
+                terminal_name TEXT NOT NULL,
+                operator_id TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                completed_at TEXT NOT NULL,
+                final_status TEXT NOT NULL,
+                auto_count INTEGER NOT NULL,
+                manual_count INTEGER NOT NULL,
+                total_count INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS inspection_history_rows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                history_id TEXT NOT NULL,
+                row_index INTEGER NOT NULL,
+                label TEXT NOT NULL,
+                tube_l_expected TEXT NOT NULL,
+                tube_r_expected TEXT NOT NULL,
+                tube_l_status TEXT NOT NULL,
+                label_status TEXT NOT NULL,
+                tube_r_status TEXT NOT NULL,
+                completion_method TEXT NOT NULL,
+                manual_confirmed_by TEXT,
+                manual_confirmed_at TEXT,
+                final_status TEXT NOT NULL,
+                UNIQUE(history_id, row_index),
+                FOREIGN KEY(history_id) REFERENCES inspection_history(history_id) ON DELETE CASCADE
+            );
             """
         )
 
@@ -198,3 +254,144 @@ def touch_summary(session_id: str, summary: dict) -> None:
             summary,
         )
 
+
+
+def upsert_manual_confirmation(
+    session_id: str,
+    row_index: int,
+    label: str,
+    confirmed: bool,
+    confirmed_by: str | None,
+    confirmed_at: str | None,
+    updated_at: str,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO inspection_manual_confirmations (
+                session_id, row_index, label, confirmed, confirmed_by, confirmed_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(session_id, row_index) DO UPDATE SET
+                label=excluded.label,
+                confirmed=excluded.confirmed,
+                confirmed_by=excluded.confirmed_by,
+                confirmed_at=excluded.confirmed_at,
+                updated_at=excluded.updated_at
+            """,
+            (
+                session_id,
+                row_index,
+                label,
+                int(confirmed),
+                confirmed_by,
+                confirmed_at,
+                updated_at,
+            ),
+        )
+
+
+def load_manual_confirmations(session_id: str) -> list[dict]:
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT row_index, label, confirmed, confirmed_by, confirmed_at, updated_at
+            FROM inspection_manual_confirmations
+            WHERE session_id = ?
+            ORDER BY row_index ASC
+            """,
+            (session_id,),
+        ).fetchall()
+        return [
+            {
+                "row_index": row["row_index"],
+                "label": row["label"],
+                "confirmed": bool(row["confirmed"]),
+                "confirmed_by": row["confirmed_by"],
+                "confirmed_at": row["confirmed_at"],
+                "updated_at": row["updated_at"],
+            }
+            for row in rows
+        ]
+
+
+def append_manual_confirmation_event(
+    session_id: str,
+    row_index: int,
+    label: str,
+    action: str,
+    operator_id: str,
+    created_at: str,
+) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO inspection_manual_confirmation_events (
+                session_id, row_index, label, action, operator_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, row_index, label, action, operator_id, created_at),
+        )
+
+
+def persist_inspection_history(history: dict, rows: Iterable[dict]) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO inspection_history (
+                history_id, session_id, serial_no, board_no, terminal_name,
+                operator_id, started_at, completed_at, final_status,
+                auto_count, manual_count, total_count
+            ) VALUES (
+                :history_id, :session_id, :serial_no, :board_no, :terminal_name,
+                :operator_id, :started_at, :completed_at, :final_status,
+                :auto_count, :manual_count, :total_count
+            )
+            ON CONFLICT(session_id) DO UPDATE SET
+                serial_no=excluded.serial_no,
+                board_no=excluded.board_no,
+                terminal_name=excluded.terminal_name,
+                operator_id=excluded.operator_id,
+                started_at=excluded.started_at,
+                completed_at=excluded.completed_at,
+                final_status=excluded.final_status,
+                auto_count=excluded.auto_count,
+                manual_count=excluded.manual_count,
+                total_count=excluded.total_count
+            """,
+            history,
+        )
+        conn.execute("DELETE FROM inspection_history_rows WHERE history_id = ?", (history["history_id"],))
+        for row in rows:
+            conn.execute(
+                """
+                INSERT INTO inspection_history_rows (
+                    history_id, row_index, label, tube_l_expected, tube_r_expected,
+                    tube_l_status, label_status, tube_r_status, completion_method,
+                    manual_confirmed_by, manual_confirmed_at, final_status
+                ) VALUES (
+                    :history_id, :row_index, :label, :tube_l_expected, :tube_r_expected,
+                    :tube_l_status, :label_status, :tube_r_status, :completion_method,
+                    :manual_confirmed_by, :manual_confirmed_at, :final_status
+                )
+                """,
+                row,
+            )
+
+
+def load_inspection_history(session_id: str) -> tuple[dict | None, list[dict]]:
+    with get_connection() as conn:
+        history = conn.execute(
+            "SELECT * FROM inspection_history WHERE session_id = ?",
+            (session_id,),
+        ).fetchone()
+        if history is None:
+            return None, []
+        rows = conn.execute(
+            """
+            SELECT * FROM inspection_history_rows
+            WHERE history_id = ?
+            ORDER BY row_index ASC
+            """,
+            (history["history_id"],),
+        ).fetchall()
+        return dict(history), [dict(row) for row in rows]
