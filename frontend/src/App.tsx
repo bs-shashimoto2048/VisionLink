@@ -343,8 +343,8 @@ function App() {
       operatorId: operator.operator_id,
       qrText: intake.qrText || undefined,
       orderNo: intake.orderNo || undefined,
-      serialNo: intake.serialNo || undefined,
-      terminalName: intake.terminalName || undefined,
+      serialNo: selectedSerial || undefined,
+      terminalName: selectedTerminal || undefined,
     });
     setInspection(response);
     setLastFrameAnalysis(null);
