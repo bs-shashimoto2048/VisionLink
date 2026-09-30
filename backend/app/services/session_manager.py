@@ -28,6 +28,7 @@ from ..schemas import (
 from .ai_pipeline import AIModelError, DetectionResult, pipeline
 from .check_data import load_table
 from .internal_data import lookup_internal_data
+from .label_ocr import run_rotated_label_ocr
 from .judgement import effective_status, judge_row
 from .stability import OcrStabilityState, evaluate_ocr_stability
 from .store import (
@@ -524,6 +525,21 @@ class SessionManager:
                 len(response.ocr_results),
             )
             return response
+
+    def process_rotated_label_ocr(
+        self,
+        frame_bytes: bytes,
+        detections: list[DetectionBox],
+        ocr_confidence_threshold: float,
+    ) -> tuple[list[OCRResult], int]:
+        # Shares PaddleOCR with frame inference; serialize model access without
+        # blocking session-state operations.
+        with self._pipeline_lock:
+            return run_rotated_label_ocr(
+                frame_bytes,
+                detections,
+                ocr_confidence_threshold,
+            )
 
     def manual_edit_row(self, session_id: str, line_no: int, request: ManualEditRequest) -> InspectionSessionResponse:
         with self._lock:
