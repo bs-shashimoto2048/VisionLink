@@ -12,6 +12,7 @@ from .schemas import (
     FrameAnalyzeResponse,
     InternalDataLookupRequest,
     InternalDataLookupResponse,
+    InspectionHistoryResponse,
     InspectionSessionResponse,
     LoginRequest,
     LoginResponse,
@@ -20,6 +21,7 @@ from .schemas import (
     PerformanceMetrics,
     StartInspectionRequest,
 )
+from .db import load_inspection_history
 from .services.check_data import CheckDataError, list_boards, list_serials, list_terminals, load_table
 from .services.internal_data import lookup_internal_data
 from .services.ai_pipeline import AIModelError, pipeline
@@ -102,6 +104,14 @@ def get_session(session_id: str) -> InspectionSessionResponse:
         return manager.get_session(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
+
+
+@router.get("/inspection/history/{session_id}", response_model=InspectionHistoryResponse)
+def inspection_history(session_id: str) -> InspectionHistoryResponse:
+    history, rows = load_inspection_history(session_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail="inspection history not found")
+    return InspectionHistoryResponse(**history, rows=rows)
 
 
 @router.post("/inspection/frame-analyze", response_model=FrameAnalyzeResponse)
