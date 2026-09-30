@@ -404,6 +404,22 @@ function App() {
       if (!window.confirm(message)) return;
     }
 
+    const previousRow = { ...row };
+    const optimisticTimestamp = new Date().toISOString();
+    setCheckRows((rows) =>
+      rows.map((item, index) =>
+        index === rowIndex
+          ? {
+              ...item,
+              manual_confirmed: nextConfirmed,
+              manual_confirmed_by: nextConfirmed ? operator.operator_id : null,
+              manual_confirmed_at: nextConfirmed ? optimisticTimestamp : null,
+            }
+          : item
+      )
+    );
+    setWorkerConfirmed(false);
+
     try {
       const response = await setManualConfirmation({
         sessionId: inspection.session_id,
@@ -414,9 +430,11 @@ function App() {
       });
       setInspection(response);
       setCheckRows((rows) => applyManualConfirmations(rows, response.manual_confirmations));
-      setWorkerConfirmed(false);
       showBanner(nextConfirmed ? `端子番号 ${row.label} を目視確認しました` : `端子番号 ${row.label} の目視確認を解除しました`);
     } catch (error) {
+      setCheckRows((rows) =>
+        rows.map((item, index) => (index === rowIndex ? previousRow : item))
+      );
       showBanner(error instanceof Error ? error.message : "目視確認を更新できません", { error: true });
     }
   }
