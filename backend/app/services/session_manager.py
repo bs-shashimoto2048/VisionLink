@@ -93,6 +93,7 @@ class RuntimeSession:
     order_no: str
     serial_no: str
     terminal_name: str
+    board_no: str
     rows: list[RuntimeRow]
     status: SessionStatus = SessionStatus.IN_PROGRESS
     frame_index: int = 0
@@ -141,6 +142,7 @@ class RuntimeSession:
             "order_no": self.order_no,
             "serial_no": self.serial_no,
             "terminal_name": self.terminal_name,
+            "board_no": self.board_no,
             "status": self.status.value,
             "frame_index": self.frame_index,
             "stability_count": self.stability_count,
@@ -162,6 +164,7 @@ class RuntimeSession:
             order_no=self.order_no,
             serial_no=self.serial_no,
             terminal_name=self.terminal_name,
+            board_no=self.board_no,
             qr_text=self.qr_text,
             frame_index=self.frame_index,
             stability_count=self.stability_count,
@@ -211,6 +214,7 @@ class SessionManager:
             order_no=lookup.order_no,
             serial_no=lookup.serial_no,
             terminal_name=lookup.terminal_name,
+            board_no=request.board_no,
             rows=rows,
         )
         persist_session_snapshot(session.snapshot())
@@ -258,6 +262,7 @@ class SessionManager:
             order_no=session_row["order_no"],
             serial_no=session_row["serial_no"],
             terminal_name=session_row["terminal_name"],
+            board_no=session_row["board_no"] or "",
             rows=rows,
             status=SessionStatus(session_row["status"]),
             frame_index=session_row["frame_index"],
@@ -599,7 +604,9 @@ class SessionManager:
             if not request.rows:
                 raise ValueError("completion row results are required")
 
-            check_table = load_table(session.serial_no, request.board_no, session.terminal_name)
+            if not session.board_no:
+                raise ValueError("board number is missing from this inspection session")
+            check_table = load_table(session.serial_no, session.board_no, session.terminal_name)
             if len(request.rows) != len(check_table.rows):
                 raise ValueError(
                     f"completion rows do not match check data: expected {len(check_table.rows)}, got {len(request.rows)}"
@@ -676,7 +683,7 @@ class SessionManager:
                     "history_id": f"history-{session.session_id}",
                     "session_id": session.session_id,
                     "serial_no": session.serial_no,
-                    "board_no": request.board_no,
+                    "board_no": session.board_no,
                     "terminal_name": session.terminal_name,
                     "operator_id": session.operator_id,
                     "started_at": session.created_at,
