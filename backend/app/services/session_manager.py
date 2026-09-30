@@ -185,7 +185,10 @@ class RuntimeSession:
 
 class SessionManager:
     def __init__(self) -> None:
+        # Session state is protected only for short read/update sections.
+        # AI inference uses a separate lock so UI operations do not wait for YOLO/OCR.
         self._lock = Lock()
+        self._pipeline_lock = Lock()
         self._sessions: dict[str, RuntimeSession] = {}
 
     def _build_session(self, request: StartInspectionRequest) -> RuntimeSession:
@@ -292,32 +295,51 @@ class SessionManager:
         ocr_confidence_threshold: float = 0.5,
         rotate_left_tube_ocr: bool = False,
     ) -> FrameAnalyzeResponse:
-        with self._lock:
-            session = self._ensure_session(session_id)
-            if session.operator_id != operator_id:
-                raise PermissionError("operator mismatch")
-            if session.status == SessionStatus.COMPLETED:
-                return FrameAnalyzeResponse(**session.to_response().model_dump())
+        # Keep model access serialized because YOLO/PaddleOCR instances are shared,
+        # but do not hold the session-state lock while inference is running.
+        with self._pipeline_lock:
+            with self._lock:
+                session = self._ensure_session(session_id)
+                if session.operator_id != operator_id:
+                    raise PermissionError("operator mismatch")
+                if session.status != SessionStatus.IN_PROGRESS:
+                    return FrameAnalyzeResponse(**session.to_response().model_dump())
 
-            session.frame_index = max(session.frame_index + 1, frame_index or 0)
-            session.updated_at = now_iso()
+                assigned_frame_index = max(session.frame_index + 1, frame_index or 0)
+                session.frame_index = assigned_frame_index
+                session.updated_at = now_iso()
 
-            target_row = session.rows[(session.frame_index - 1) % len(session.rows)] if session.rows else None
-            row_template = (
-                InspectionRowTemplate(
-                    no=target_row.no,
-                    line_no=target_row.line_no,
-                    left_value=target_row.left_value,
-                    right_value=target_row.right_value,
+                target_row_index = (
+                    (assigned_frame_index - 1) % len(session.rows)
+                    if session.rows
+                    else None
                 )
-                if target_row
-                else None
-            )
+                target_row = (
+                    session.rows[target_row_index]
+                    if target_row_index is not None
+                    else None
+                )
+                row_template = (
+                    InspectionRowTemplate(
+                        no=target_row.no,
+                        line_no=target_row.line_no,
+                        left_value=target_row.left_value,
+                        right_value=target_row.right_value,
+                    )
+                    if target_row
+                    else None
+                )
 
+            # Heavy YOLO/OCR work intentionally runs outside self._lock.
+            last_error: str | None = None
             try:
-                detection = pipeline.detect(frame_bytes, session.frame_index, confidence_threshold=yolo_confidence_threshold)
+                detection = pipeline.detect(
+                    frame_bytes,
+                    assigned_frame_index,
+                    confidence_threshold=yolo_confidence_threshold,
+                )
             except AIModelError as exc:
-                session.last_error = str(exc)
+                last_error = str(exc)
                 detection = DetectionResult(
                     detections=[
                         DetectionBox(
@@ -330,39 +352,43 @@ class SessionManager:
                         )
                     ],
                     performance=PerformanceMetrics(yolo_ms=0, ocr_ms=0, total_ms=0),
-                    signature=f"demo:{session.frame_index}",
+                    signature=f"demo:{assigned_frame_index}",
                 )
                 logger.info(
                     "frame-analyze inserted demo detection session_id=%s frame_index=%s reason=%s",
-                    session.session_id,
-                    session.frame_index,
+                    session_id,
+                    assigned_frame_index,
                     str(exc),
                 )
-            session.performance = detection.performance
-            session.detections = detection.detections
-            session.ocr_results = []
+
+            performance = detection.performance
+            detections = detection.detections
+            ocr_results: list[OCRResult] = []
+            ocr_text: str | None = None
+
             logger.info(
                 "frame-analyze detections session_id=%s frame_index=%s rotate_left_tube_ocr=%s count=%s detections=%s",
-                session.session_id,
-                session.frame_index,
+                session_id,
+                assigned_frame_index,
                 rotate_left_tube_ocr,
-                len(session.detections),
-                [det.model_dump() for det in session.detections],
+                len(detections),
+                [det.model_dump() for det in detections],
             )
+
             try:
                 det_ocr_perf = pipeline.ocr_detections(
                     frame_bytes,
-                    session.detections,
+                    detections,
                     ocr_confidence_threshold=ocr_confidence_threshold,
                     rotate_left_tube_ocr=rotate_left_tube_ocr,
                 )
-                session.performance = PerformanceMetrics(
-                    yolo_ms=session.performance.yolo_ms,
+                performance = PerformanceMetrics(
+                    yolo_ms=performance.yolo_ms,
                     ocr_ms=det_ocr_perf.ocr_ms,
-                    total_ms=session.performance.yolo_ms + det_ocr_perf.ocr_ms,
+                    total_ms=performance.yolo_ms + det_ocr_perf.ocr_ms,
                 )
-                session.ocr_text = next((d.ocr_text for d in session.detections if d.ocr_text), None)
-                session.ocr_results = [
+                ocr_text = next((d.ocr_text for d in detections if d.ocr_text), None)
+                ocr_results = [
                     OCRResult(
                         text=det.ocr_text.strip(),
                         confidence=det.confidence,
@@ -374,128 +400,130 @@ class SessionManager:
                         side=det.side,
                         role=det.role,
                     )
-                    for det in session.detections
+                    for det in detections
                     if det.ocr_text and det.ocr_text.strip()
                 ]
-                logger.debug(
-                    "frame-analyze detection OCR session_id=%s frame_index=%s ocr_results=%s",
-                    session.session_id,
-                    session.frame_index,
-                    [result.model_dump() for result in session.ocr_results],
-                )
             except AIModelError as exc:
-                session.last_error = str(exc)
-                session.performance = PerformanceMetrics(
-                    yolo_ms=session.performance.yolo_ms,
+                last_error = str(exc)
+                performance = PerformanceMetrics(
+                    yolo_ms=performance.yolo_ms,
                     ocr_ms=0,
-                    total_ms=session.performance.yolo_ms,
+                    total_ms=performance.yolo_ms,
                 )
-                session.ocr_text = None
+                ocr_text = None
 
             logger.debug("CALL pipeline.ocr_results from session_manager")
             ocr_results_result = pipeline.ocr_results(
                 frame_bytes,
-                session.detections,
+                detections,
                 row_template,
-                session.frame_index,
+                assigned_frame_index,
                 ocr_confidence_threshold=ocr_confidence_threshold,
                 rotate_left_tube_ocr=rotate_left_tube_ocr,
             )
             if ocr_results_result.ocr_results:
-                session.ocr_results = ocr_results_result.ocr_results
-                session.ocr_text = session.ocr_results[0].text
-                session.performance = PerformanceMetrics(
-                    yolo_ms=session.performance.yolo_ms,
-                    ocr_ms=max(session.performance.ocr_ms, ocr_results_result.performance.ocr_ms),
-                    total_ms=session.performance.yolo_ms + max(session.performance.ocr_ms, ocr_results_result.performance.ocr_ms),
+                ocr_results = ocr_results_result.ocr_results
+                ocr_text = ocr_results[0].text
+                max_ocr_ms = max(
+                    performance.ocr_ms,
+                    ocr_results_result.performance.ocr_ms,
                 )
-            logger.info(
-                "frame-analyze OCR results source=%s session_id=%s frame_index=%s count=%s",
-                ocr_results_result.source,
-                session.session_id,
-                session.frame_index,
-                len(ocr_results_result.ocr_results),
-            )
-            logger.debug(
-                "frame-analyze OCR results detail source=%s session_id=%s frame_index=%s ocr_results=%s",
-                ocr_results_result.source,
-                session.session_id,
-                session.frame_index,
-                [result.model_dump() for result in ocr_results_result.ocr_results],
-            )
+                performance = PerformanceMetrics(
+                    yolo_ms=performance.yolo_ms,
+                    ocr_ms=max_ocr_ms,
+                    total_ms=performance.yolo_ms + max_ocr_ms,
+                )
 
-            stability = evaluate_ocr_stability(session.ocr_state, detection.signature, detection.detections)
-            session.stability_count = session.ocr_state.stable_count
-            session.should_ocr = stability.stable and target_row is not None
-            session.target_row_no = target_row.no if target_row else None
-            if not session.ocr_text:
-                session.ocr_text = None
+            # Stability state belongs to the session, so mutate it only while locked.
+            with self._lock:
+                session = self._ensure_session(session_id)
+                if (
+                    session.operator_id != operator_id
+                    or session.status != SessionStatus.IN_PROGRESS
+                    or session.frame_index != assigned_frame_index
+                ):
+                    return FrameAnalyzeResponse(**session.to_response().model_dump())
 
-            if session.should_ocr and target_row and row_template:
-                ocr_result = pipeline.ocr(frame_bytes, row_template, session.stability_count, session.frame_index)
-                session.ocr_text = ocr_result.text
-                logger.info(
-                    "frame-analyze row OCR session_id=%s frame_index=%s target_row_no=%s text=%s confidence=%s bbox=%s success=%s reason=%s",
-                    session.session_id,
-                    session.frame_index,
-                    target_row.no,
-                    ocr_result.text,
-                    ocr_result.confidence,
-                    ocr_result.bbox,
-                    ocr_result.success,
-                    ocr_result.reason,
+                stability = evaluate_ocr_stability(
+                    session.ocr_state,
+                    detection.signature,
+                    detection.detections,
                 )
-                session.performance = PerformanceMetrics(
-                    yolo_ms=session.performance.yolo_ms,
-                    ocr_ms=ocr_result.performance.ocr_ms,
-                    total_ms=session.performance.yolo_ms + ocr_result.performance.ocr_ms,
+                stability_count = session.ocr_state.stable_count
+                should_ocr = stability.stable and row_template is not None
+
+            row_ocr_result = None
+            if should_ocr and row_template:
+                row_ocr_result = pipeline.ocr(
+                    frame_bytes,
+                    row_template,
+                    stability_count,
+                    assigned_frame_index,
                 )
-                if ocr_result.success:
-                    if ocr_result.text:
-                        session.ocr_results.append(
-                            OCRResult(
-                                text=ocr_result.text,
-                                confidence=ocr_result.confidence,
-                                bbox=ocr_result.bbox,
-                                source="row_ocr",
+
+            # Apply inference atomically. If the session was stopped/completed while
+            # inference ran, discard this frame instead of overwriting newer state.
+            with self._lock:
+                session = self._ensure_session(session_id)
+                if (
+                    session.operator_id != operator_id
+                    or session.status != SessionStatus.IN_PROGRESS
+                    or session.frame_index != assigned_frame_index
+                ):
+                    return FrameAnalyzeResponse(**session.to_response().model_dump())
+
+                session.performance = performance
+                session.detections = detections
+                session.ocr_results = list(ocr_results)
+                session.ocr_text = ocr_text
+                session.stability_count = stability_count
+                session.target_row_no = row_template.no if row_template else None
+                session.last_error = last_error
+                session.updated_at = now_iso()
+
+                if row_ocr_result is not None and row_template is not None:
+                    session.ocr_text = row_ocr_result.text
+                    session.performance = PerformanceMetrics(
+                        yolo_ms=session.performance.yolo_ms,
+                        ocr_ms=row_ocr_result.performance.ocr_ms,
+                        total_ms=session.performance.yolo_ms + row_ocr_result.performance.ocr_ms,
+                    )
+                    if row_ocr_result.success:
+                        if row_ocr_result.text:
+                            session.ocr_results.append(
+                                OCRResult(
+                                    text=row_ocr_result.text,
+                                    confidence=row_ocr_result.confidence,
+                                    bbox=row_ocr_result.bbox,
+                                    source="row_ocr",
+                                )
                             )
-                        )
-                    judgement = judge_row(row_template, ocr_result.text)
-                    target_row.check_status = judgement.status
-                    target_row.ocr_text = ocr_result.text
-                    target_row.updated_at = now_iso()
-                else:
-                    target_row.check_status = CheckStatus.OCR_FAILED
-                    target_row.ocr_text = None
-                    target_row.updated_at = now_iso()
+                        judgement = judge_row(row_template, row_ocr_result.text)
+                        if target_row_index is not None and target_row_index < len(session.rows):
+                            current_target = session.rows[target_row_index]
+                            current_target.check_status = judgement.status
+                            current_target.ocr_text = row_ocr_result.text
+                            current_target.updated_at = now_iso()
+                    elif target_row_index is not None and target_row_index < len(session.rows):
+                        current_target = session.rows[target_row_index]
+                        current_target.check_status = CheckStatus.OCR_FAILED
+                        current_target.ocr_text = None
+                        current_target.updated_at = now_iso()
 
-            persist_rows(session.session_id, [row.to_record() for row in session.rows])
-            persist_session_snapshot(session.snapshot())
+                persist_rows(
+                    session.session_id,
+                    [row.to_record() for row in session.rows],
+                )
+                persist_session_snapshot(session.snapshot())
+                response = FrameAnalyzeResponse(**session.to_response().model_dump())
+
             logger.info(
                 "frame-analyze response OCR session_id=%s frame_index=%s ocr_results_count=%s",
-                session.session_id,
-                session.frame_index,
-                len(session.ocr_results),
+                session_id,
+                assigned_frame_index,
+                len(response.ocr_results),
             )
-            logger.debug(
-                "frame-analyze response OCR detail session_id=%s frame_index=%s ocr_results=%s",
-                session.session_id,
-                session.frame_index,
-                [
-                    {
-                        "text": result.text,
-                        "confidence": result.confidence,
-                        "bbox": result.bbox,
-                        "source": result.source,
-                        "rotated": result.rotated,
-                        "rotation_deg": result.rotation_deg,
-                        "side": result.side,
-                        "role": result.role,
-                    }
-                    for result in session.ocr_results
-                ],
-            )
-            return FrameAnalyzeResponse(**session.to_response().model_dump())
+            return response
 
     def manual_edit_row(self, session_id: str, line_no: int, request: ManualEditRequest) -> InspectionSessionResponse:
         with self._lock:
