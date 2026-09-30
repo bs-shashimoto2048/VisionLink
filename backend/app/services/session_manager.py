@@ -531,6 +531,15 @@ class SessionManager:
                 raise PermissionError("operator mismatch")
             if session.status not in (SessionStatus.IN_PROGRESS, SessionStatus.PAUSED):
                 raise ValueError("manual confirmation is only available for an active inspection")
+            if not session.board_no:
+                raise ValueError("board number is missing from this inspection session")
+
+            check_table = load_table(session.serial_no, session.board_no, session.terminal_name)
+            if request.row_index < 0 or request.row_index >= len(check_table.rows):
+                raise ValueError(f"invalid row index: {request.row_index}")
+            expected = check_table.rows[request.row_index]
+            if request.label != expected.label:
+                raise ValueError(f"row {request.row_index} label does not match current check data")
 
             timestamp = now_iso()
             state = ManualConfirmationState(
