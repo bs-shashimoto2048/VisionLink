@@ -428,8 +428,26 @@ function App() {
         label: row.label,
         confirmed: nextConfirmed,
       });
-      setInspection(response);
-      setCheckRows((rows) => applyManualConfirmations(rows, response.manual_confirmations));
+      setCheckRows((rows) =>
+        rows.map((item, index) =>
+          index === rowIndex
+            ? {
+                ...item,
+                manual_confirmed: response.confirmed,
+                manual_confirmed_by: response.confirmed_by ?? null,
+                manual_confirmed_at: response.confirmed_at ?? null,
+              }
+            : item
+        )
+      );
+      setInspection((current) => {
+        if (!current) return current;
+        const manualConfirmations = [...current.manual_confirmations];
+        const existingIndex = manualConfirmations.findIndex((item) => item.row_index === response.row_index);
+        if (existingIndex >= 0) manualConfirmations[existingIndex] = response;
+        else manualConfirmations.push(response);
+        return { ...current, manual_confirmations: manualConfirmations };
+      });
       showBanner(nextConfirmed ? `端子番号 ${row.label} を目視確認しました` : `端子番号 ${row.label} の目視確認を解除しました`);
     } catch (error) {
       setCheckRows((rows) =>
