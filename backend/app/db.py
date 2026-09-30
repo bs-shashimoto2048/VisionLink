@@ -28,6 +28,7 @@ def init_db() -> None:
                 order_no TEXT NOT NULL,
                 serial_no TEXT NOT NULL,
                 terminal_name TEXT NOT NULL,
+                board_no TEXT,
                 status TEXT NOT NULL,
                 frame_index INTEGER NOT NULL DEFAULT 0,
                 stability_count INTEGER NOT NULL DEFAULT 0,
@@ -115,6 +116,12 @@ def init_db() -> None:
             );
             """
         )
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(inspection_sessions)").fetchall()
+        }
+        if "board_no" not in columns:
+            conn.execute("ALTER TABLE inspection_sessions ADD COLUMN board_no TEXT")
 
 
 def _json(value: object) -> str:
@@ -133,12 +140,12 @@ def upsert_session(snapshot: dict) -> None:
         conn.execute(
             """
             INSERT INTO inspection_sessions (
-                session_id, operator_id, qr_text, order_no, serial_no, terminal_name,
+                session_id, operator_id, qr_text, order_no, serial_no, terminal_name, board_no,
                 status, frame_index, stability_count, worker_confirmed,
                 ok_count, ng_count, pending_count, completion_status,
                 created_at, updated_at, completed_at
             ) VALUES (
-                :session_id, :operator_id, :qr_text, :order_no, :serial_no, :terminal_name,
+                :session_id, :operator_id, :qr_text, :order_no, :serial_no, :terminal_name, :board_no,
                 :status, :frame_index, :stability_count, :worker_confirmed,
                 :ok_count, :ng_count, :pending_count, :completion_status,
                 :created_at, :updated_at, :completed_at
@@ -149,6 +156,7 @@ def upsert_session(snapshot: dict) -> None:
                 order_no=excluded.order_no,
                 serial_no=excluded.serial_no,
                 terminal_name=excluded.terminal_name,
+                board_no=excluded.board_no,
                 status=excluded.status,
                 frame_index=excluded.frame_index,
                 stability_count=excluded.stability_count,
