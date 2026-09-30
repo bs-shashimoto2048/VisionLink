@@ -15,6 +15,7 @@ from .schemas import (
     InspectionSessionResponse,
     LoginRequest,
     LoginResponse,
+    ManualConfirmationRequest,
     ManualEditRequest,
     PerformanceMetrics,
     StartInspectionRequest,
@@ -157,6 +158,21 @@ async def frame_analyze(
     except Exception as exc:  # pragma: no cover - runtime safety
         logger.exception("frame-analyze failed")
         raise HTTPException(status_code=500, detail=f"frame analysis failed: {exc}") from exc
+
+
+@router.post("/inspection/session/{session_id}/manual-confirm", response_model=InspectionSessionResponse)
+def manual_confirm(
+    session_id: str,
+    request: ManualConfirmationRequest,
+) -> InspectionSessionResponse:
+    try:
+        return manager.set_manual_confirmation(session_id, request)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/inspection/session/{session_id}/rows/{line_no}/manual-edit", response_model=InspectionSessionResponse)
