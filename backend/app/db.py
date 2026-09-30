@@ -330,6 +330,7 @@ def load_manual_confirmations(session_id: str) -> list[dict]:
                 "confirmed": bool(row["confirmed"]),
                 "confirmed_by": row["confirmed_by"],
                 "confirmed_at": row["confirmed_at"],
+                "has_confirmation_history": True,
                 "updated_at": row["updated_at"],
             }
             for row in rows
