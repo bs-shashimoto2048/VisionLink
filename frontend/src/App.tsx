@@ -106,6 +106,7 @@ function App() {
   const [banner, setBanner] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingManualConfirmation, setPendingManualConfirmation] = useState<{ row: CheckRow; rowIndex: number } | null>(null);
   const [overlayMode, setOverlayMode] = useState<keyof typeof OVERLAY_MODES>("inference_result");
   const [yoloThreshold, setYoloThreshold] = useState(0.6);
   const [ocrThreshold, setOcrThreshold] = useState(0.6);
@@ -407,18 +408,12 @@ function App() {
     }
   }
 
-  async function handleManualConfirmation(row: CheckRow, rowIndex: number) {
+  async function applyManualConfirmation(row: CheckRow, rowIndex: number) {
     if (!operator || !inspection) return;
     const nextConfirmed = !Boolean(row.manual_confirmed);
-    const hasManualConfirmationHistory = manualConfirmationSeenRef.current;
-    const requiresFirstConfirmation = nextConfirmed && !hasManualConfirmationHistory;
-    if (requiresFirstConfirmation) {
-      const message = `端子番号 ${row.label} を目視確認済みにしますか？\n実物と検査データが一致していることを確認してください。`;
-      if (!window.confirm(message)) return;
-    }
-
     const previousRow = { ...row };
     const optimisticTimestamp = new Date().toISOString();
+
     setCheckRows((rows) =>
       rows.map((item, index) =>
         index === rowIndex
@@ -456,12 +451,24 @@ function App() {
       );
       showBanner(nextConfirmed ? `端子番号 ${row.label} を目視確認しました` : `端子番号 ${row.label} の目視確認を解除しました`);
     } catch (error) {
-      if (requiresFirstConfirmation) manualConfirmationSeenRef.current = false;
       setCheckRows((rows) =>
         rows.map((item, index) => (index === rowIndex ? previousRow : item))
       );
       showBanner(error instanceof Error ? error.message : "目視確認を更新できません", { error: true });
     }
+  }
+
+  function handleManualConfirmation(row: CheckRow, rowIndex: number) {
+    if (!operator || !inspection) return;
+    const nextConfirmed = !Boolean(row.manual_confirmed);
+    const requiresFirstConfirmation = nextConfirmed && !manualConfirmationSeenRef.current;
+
+    if (requiresFirstConfirmation) {
+      setPendingManualConfirmation({ row: { ...row }, rowIndex });
+      return;
+    }
+
+    void applyManualConfirmation(row, rowIndex);
   }
 
   async function handleComplete() {
@@ -517,6 +524,32 @@ function App() {
           <span className="banner-text">{banner}</span>
           <button type="button" className="banner-close" aria-label="閉じる" onClick={dismissBanner}>×</button>
         </div>
+      ) : null}
+
+      {pendingManualConfirmation ? createPortal(
+        <div className="settings-modal-backdrop" onClick={() => setPendingManualConfirmation(null)}>
+          <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <h3>目視確認</h3>
+            </div>
+            <p>端子番号 {pendingManualConfirmation.row.label} を目視確認済みにしますか？</p>
+            <p>実物と検査データが一致していることを確認してください。</p>
+            <div className="button-row">
+              <button onClick={() => setPendingManualConfirmation(null)}>キャンセル</button>
+              <button
+                className="primary"
+                onClick={() => {
+                  const pending = pendingManualConfirmation;
+                  setPendingManualConfirmation(null);
+                  void applyManualConfirmation(pending.row, pending.rowIndex);
+                }}
+              >
+                目視OK
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       ) : null}
 
       {!operator ? (
