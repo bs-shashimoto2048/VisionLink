@@ -222,5 +222,35 @@ class InspectionSessionResponse(BaseModel):
     manual_confirmations: list[ManualConfirmationState] = Field(default_factory=list)
 
 
+class InspectionHistoryRow(BaseModel):
+    row_index: int
+    label: str
+    tube_l_expected: str
+    tube_r_expected: str
+    tube_l_status: str
+    label_status: str
+    tube_r_status: str
+    completion_method: CompletionMethod
+    manual_confirmed_by: str | None = None
+    manual_confirmed_at: str | None = None
+    final_status: str
+
+
+class InspectionHistoryResponse(BaseModel):
+    history_id: str
+    session_id: str
+    serial_no: str
+    board_no: str
+    terminal_name: str
+    operator_id: str
+    started_at: str
+    completed_at: str
+    final_status: str
+    auto_count: int
+    manual_count: int
+    total_count: int
+    rows: list[InspectionHistoryRow] = Field(default_factory=list)
+
+
 class FrameAnalyzeResponse(InspectionSessionResponse):
     pass
