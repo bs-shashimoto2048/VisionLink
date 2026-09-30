@@ -125,6 +125,7 @@ function App() {
   const [checkDataError, setCheckDataError] = useState<string | null>(null);
   const pendingLookup = useRef(false);
   const manualConfirmationSeenRef = useRef(false);
+  const manualConfirmationSessionRef = useRef<string | null>(null);
   const guideX = 0.5;
 
   const bannerTimer = useRef<number | null>(null);
@@ -260,9 +261,16 @@ function App() {
   });
 
   useEffect(() => {
-    manualConfirmationSeenRef.current = Boolean(
+    const sessionId = inspection?.session_id ?? null;
+    const hasHistory = Boolean(
       inspection?.manual_confirmations.some((item) => Boolean(item.has_confirmation_history))
     );
+    if (manualConfirmationSessionRef.current !== sessionId) {
+      manualConfirmationSessionRef.current = sessionId;
+      manualConfirmationSeenRef.current = hasHistory;
+      return;
+    }
+    if (hasHistory) manualConfirmationSeenRef.current = true;
   }, [inspection?.session_id, inspection?.manual_confirmations]);
 
   const statusLabel = inspection?.status ?? (operator ? "待機中" : "未ログイン");
