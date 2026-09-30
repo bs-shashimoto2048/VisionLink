@@ -63,6 +63,7 @@ function applyManualConfirmations(
       manual_confirmed: confirmation.confirmed,
       manual_confirmed_by: confirmation.confirmed_by ?? null,
       manual_confirmed_at: confirmation.confirmed_at ?? null,
+      manual_confirmation_seen: Boolean(confirmation.has_confirmation_history),
     };
   });
 }
@@ -395,10 +396,11 @@ function App() {
   async function handleManualConfirmation(row: CheckRow, rowIndex: number) {
     if (!operator || !inspection) return;
     const nextConfirmed = !Boolean(row.manual_confirmed);
-    const message = nextConfirmed
-      ? `端子番号 ${row.label} を目視確認済みにしますか？\n実物と検査データが一致していることを確認してください。`
-      : `端子番号 ${row.label} の目視確認を解除しますか？`;
-    if (!window.confirm(message)) return;
+    const requiresFirstConfirmation = nextConfirmed && !Boolean(row.manual_confirmation_seen);
+    if (requiresFirstConfirmation) {
+      const message = `端子番号 ${row.label} を目視確認済みにしますか？\n実物と検査データが一致していることを確認してください。`;
+      if (!window.confirm(message)) return;
+    }
 
     try {
       const response = await setManualConfirmation({
