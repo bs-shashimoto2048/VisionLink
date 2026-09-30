@@ -569,6 +569,8 @@ class SessionManager:
         session_id: str,
         request: ManualConfirmationRequest,
     ) -> ManualConfirmationState:
+        # Capture the target while locked, but do not hold the session lock while
+        # reading check data from the shared filesystem.
         with self._lock:
             session = self._ensure_session(session_id)
             if session.operator_id != request.operator_id:
@@ -577,13 +579,29 @@ class SessionManager:
                 raise ValueError("manual confirmation is only available for an active inspection")
             if not session.board_no:
                 raise ValueError("board number is missing from this inspection session")
+            serial_no = session.serial_no
+            board_no = session.board_no
+            terminal_name = session.terminal_name
 
-            check_table = load_table(session.serial_no, session.board_no, session.terminal_name)
-            if request.row_index < 0 or request.row_index >= len(check_table.rows):
-                raise ValueError(f"invalid row index: {request.row_index}")
-            expected = check_table.rows[request.row_index]
-            if request.label != expected.label:
-                raise ValueError(f"row {request.row_index} label does not match current check data")
+        check_table = load_table(serial_no, board_no, terminal_name)
+        if request.row_index < 0 or request.row_index >= len(check_table.rows):
+            raise ValueError(f"invalid row index: {request.row_index}")
+        expected = check_table.rows[request.row_index]
+        if request.label != expected.label:
+            raise ValueError(f"row {request.row_index} label does not match current check data")
+
+        with self._lock:
+            session = self._ensure_session(session_id)
+            if session.operator_id != request.operator_id:
+                raise PermissionError("operator mismatch")
+            if session.status not in (SessionStatus.IN_PROGRESS, SessionStatus.PAUSED):
+                raise ValueError("manual confirmation is only available for an active inspection")
+            if (
+                session.serial_no != serial_no
+                or session.board_no != board_no
+                or session.terminal_name != terminal_name
+            ):
+                raise ValueError("inspection target changed while validating manual confirmation")
 
             timestamp = now_iso()
             state = ManualConfirmationState(
