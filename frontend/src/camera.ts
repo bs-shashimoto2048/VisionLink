@@ -144,8 +144,53 @@ export function useCamera() {
           devices,
         });
         if (videoRef.current) {
-          videoRef.current.srcObject = mediaStream;
-          await videoRef.current.play();
+          const video = videoRef.current;
+          video.srcObject = mediaStream;
+
+          const logVideoEvent = (eventName: string) => {
+            console.info("[VisionLink][camera]", eventName, {
+              readyState: video.readyState,
+              paused: video.paused,
+              ended: video.ended,
+              currentTime: video.currentTime,
+              visibilityState: document.visibilityState,
+            });
+          };
+          const onPlaying = () => logVideoEvent("video:playing");
+          const onWaiting = () => logVideoEvent("video:waiting");
+          const onStalled = () => logVideoEvent("video:stalled");
+          const onPause = () => logVideoEvent("video:pause");
+          const onEnded = () => logVideoEvent("video:ended");
+
+          video.addEventListener("playing", onPlaying);
+          video.addEventListener("waiting", onWaiting);
+          video.addEventListener("stalled", onStalled);
+          video.addEventListener("pause", onPause);
+          video.addEventListener("ended", onEnded);
+
+          if (activeTrack) {
+            activeTrack.addEventListener("mute", () => {
+              console.warn("[VisionLink][camera] track:mute", {
+                readyState: activeTrack.readyState,
+                muted: activeTrack.muted,
+                settings: activeTrack.getSettings(),
+              });
+            });
+            activeTrack.addEventListener("unmute", () => {
+              console.info("[VisionLink][camera] track:unmute", {
+                readyState: activeTrack.readyState,
+                muted: activeTrack.muted,
+              });
+            });
+            activeTrack.addEventListener("ended", () => {
+              console.warn("[VisionLink][camera] track:ended", {
+                readyState: activeTrack.readyState,
+                muted: activeTrack.muted,
+              });
+            });
+          }
+
+          await video.play();
         }
     } catch (error) {
         const failure = describeCameraError(error);
