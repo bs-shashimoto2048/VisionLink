@@ -10,7 +10,7 @@ VisionLink Backendは検査処理をセッション単位で管理します。
 
 - `session_id`
 - `operator_id`
-- `order_no / serial_no / terminal_name / qr_text`
+- `order_no / serial_no / board_no / terminal_name / qr_text`
 - Backend側の検査行
 - `status`
 - `frame_index`
@@ -49,12 +49,13 @@ VisionLink Backendは検査処理をセッション単位で管理します。
 
 `POST /api/inspection/session/start`
 
-1. 内部データを取得
-2. `RuntimeRow` を生成
-3. UUIDの `session_id` を発行
-4. セッションsnapshotを保存
-5. 行データを保存
-6. メモリ上のSessionManagerへ登録
+1. 製番・盤番号・端子台を検査セッションへ固定
+2. 内部データを取得
+3. `RuntimeRow` を生成
+4. UUIDの `session_id` を発行
+5. セッションsnapshotを保存
+6. 行データを保存
+7. メモリ上のSessionManagerへ登録
 
 ## 4. フレーム処理
 
