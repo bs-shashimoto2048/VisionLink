@@ -14,6 +14,7 @@ import {
   lookupInternalData,
   pauseInspection,
   resumeInspection,
+  setManualConfirmation,
   startInspection,
 } from "./api";
 import { useCamera, useFrameSampler } from "./camera";
@@ -46,7 +47,24 @@ function rowKey(row: CheckRow, index: number) {
 }
 
 function isRowCompleted(row: CheckRow) {
-  return Boolean(row.completed) || row.all_status === "OK";
+  return Boolean(row.manual_confirmed) || Boolean(row.completed) || row.all_status === "OK";
+}
+
+function applyManualConfirmations(
+  rows: CheckRow[],
+  confirmations: InspectionSessionResponse["manual_confirmations"] = []
+) {
+  const byIndex = new Map(confirmations.map((item) => [item.row_index, item]));
+  return rows.map((row, index) => {
+    const confirmation = byIndex.get(index);
+    if (!confirmation) return row;
+    return {
+      ...row,
+      manual_confirmed: confirmation.confirmed,
+      manual_confirmed_by: confirmation.confirmed_by ?? null,
+      manual_confirmed_at: confirmation.confirmed_at ?? null,
+    };
+  });
 }
 
 function sessionStatusLabel(status?: string) {
@@ -305,6 +323,7 @@ function App() {
       const response = await fetchSession(sessionId);
       setInspection(response);
       setLastFrameAnalysis(null);
+      setCheckRows((rows) => applyManualConfirmations(rows, response.manual_confirmations));
       setWorkerConfirmed(Boolean(response.summary?.worker_confirmed));
     } catch {
       window.localStorage.removeItem("visionlink-session");
@@ -372,17 +391,65 @@ function App() {
     }
   }
 
+  async function handleManualConfirmation(row: CheckRow, rowIndex: number) {
+    if (!operator || !inspection) return;
+    const nextConfirmed = !Boolean(row.manual_confirmed);
+    const message = nextConfirmed
+      ? `端子番号 ${row.label} を目視確認済みにしますか？\n実物と検査データが一致していることを確認してください。`
+      : `端子番号 ${row.label} の目視確認を解除しますか？`;
+    if (!window.confirm(message)) return;
+
+    try {
+      const response = await setManualConfirmation({
+        sessionId: inspection.session_id,
+        operatorId: operator.operator_id,
+        rowIndex,
+        label: row.label,
+        confirmed: nextConfirmed,
+      });
+      setInspection(response);
+      setCheckRows((rows) => applyManualConfirmations(rows, response.manual_confirmations));
+      setWorkerConfirmed(false);
+      showBanner(nextConfirmed ? `端子番号 ${row.label} を目視確認しました` : `端子番号 ${row.label} の目視確認を解除しました`);
+    } catch (error) {
+      showBanner(error instanceof Error ? error.message : "目視確認を更新できません", { error: true });
+    }
+  }
+
   async function handleComplete() {
     if (!operator || !inspection) return;
     if (!workerConfirmed) {
       showBanner("完了前に作業者確認が必要です", { error: true });
       return;
     }
-    const response = await completeInspection({ sessionId: inspection.session_id, operatorId: operator.operator_id, workerConfirmed });
+    if (!allRowsCompleted) {
+      showBanner("未完了の端子があります", { error: true });
+      return;
+    }
+
+    const response = await completeInspection({
+      sessionId: inspection.session_id,
+      operatorId: operator.operator_id,
+      workerConfirmed,
+      boardNo: selectedBoard,
+      rows: checkRows.map((row, rowIndex) => ({
+        rowIndex,
+        label: row.label,
+        tubeLExpected: row.tube_l,
+        tubeRExpected: row.tube_r,
+        tubeLStatus: row.tube_l_status ?? "PENDING",
+        labelStatus: row.label_status ?? "PENDING",
+        tubeRStatus: row.tube_r_status ?? "PENDING",
+        completionMethod: row.manual_confirmed ? "MANUAL" : "AUTO",
+        manualConfirmedBy: row.manual_confirmed_by ?? null,
+        manualConfirmedAt: row.manual_confirmed_at ?? null,
+        finalStatus: "OK",
+      })),
+    });
     setInspection(response);
     stopCamera();
     window.localStorage.removeItem("visionlink-session");
-    showBanner("検査を完了しました");
+    showBanner("検査を完了し、端子台履歴を保存しました");
   }
 
   function handleLogout() {
@@ -525,7 +592,13 @@ function App() {
 
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
             {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
-            <CheckDataTable rows={checkRows} highlightKey={highlightKey} focusKey={focusKey} allCompleted={allRowsCompleted} />
+            <CheckDataTable
+              rows={checkRows}
+              highlightKey={highlightKey}
+              focusKey={focusKey}
+              allCompleted={allRowsCompleted}
+              onManualToggle={(row, index) => void handleManualConfirmation(row, index)}
+            />
 
             <div className="button-row wrap">
               <label className="checkbox"><input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!isCheckTableReady || !allRowsCompleted} />{TEXT.workerConfirmed}</label>
@@ -675,17 +748,19 @@ function OverlayCanvas({ detections, ocrResults, mode }: {
   return <canvas ref={canvasRef} className="overlay-canvas" />;
 }
 
-function allStatusLabel(status?: "PENDING" | "OK" | "NG") {
-  if (status === "OK") return "OK";
-  if (status === "NG") return "NG";
+function allStatusLabel(row: CheckRow) {
+  if (row.manual_confirmed) return "目視OK";
+  if (row.all_status === "OK") return "OK";
+  if (row.all_status === "NG") return "NG";
   return "";
 }
 
-function CheckDataTable({ rows, highlightKey, focusKey, allCompleted }: {
+function CheckDataTable({ rows, highlightKey, focusKey, allCompleted, onManualToggle }: {
   rows: CheckRow[];
   highlightKey?: string | null;
   focusKey?: string | null;
   allCompleted?: boolean;
+  onManualToggle: (row: CheckRow, index: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const focusRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -726,7 +801,7 @@ function CheckDataTable({ rows, highlightKey, focusKey, allCompleted }: {
   return (
     <div className="check-table-wrap" ref={wrapRef} onScroll={handleScroll}>
       <table className="check-data-table">
-        <thead><tr><th>L</th><th>Label</th><th>R</th><th>ALL</th></tr></thead>
+        <thead><tr><th>目視</th><th>L</th><th>Label</th><th>R</th><th>ALL</th></tr></thead>
         <tbody>
           {rows.map((row, index) => {
             const key = rowKey(row, index);
@@ -735,14 +810,23 @@ function CheckDataTable({ rows, highlightKey, focusKey, allCompleted }: {
             const isFocus = key === focusKey;
             return (
               <tr key={key} ref={isFocus ? focusRowRef : undefined} className={`${completed ? "check-row-completed" : ""}${isHighlight ? " check-row-flash" : ""}`}>
+                <td className="manual-check-cell">
+                  <input
+                    type="checkbox"
+                    aria-label={`端子番号 ${row.label} を目視確認`}
+                    checked={Boolean(row.manual_confirmed)}
+                    disabled={row.all_status === "OK" && !row.manual_confirmed}
+                    onChange={() => onManualToggle(row, index)}
+                  />
+                </td>
                 <td className={row.tube_l_status === "OK" ? "check-cell-ok" : ""}>{row.tube_l}</td>
                 <td className={`check-status-mark ${row.label_status === "OK" ? "check-cell-ok" : ""}`}>{row.label}</td>
                 <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
-                <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>
+                <td className={`check-status-mark ${isRowCompleted(row) ? "check-cell-ok" : ""}`}>{allStatusLabel(row)}</td>
               </tr>
             );
           })}
-          {!rows.length ? <tr><td colSpan={4} className="empty-state">チェックデータがありません</td></tr> : null}
+          {!rows.length ? <tr><td colSpan={5} className="empty-state">チェックデータがありません</td></tr> : null}
         </tbody>
       </table>
     </div>
