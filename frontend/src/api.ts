@@ -184,10 +184,46 @@ export async function updateRow(payload: {
   );
 }
 
+export async function setManualConfirmation(payload: {
+  sessionId: string;
+  operatorId: string;
+  rowIndex: number;
+  label: string;
+  confirmed: boolean;
+}) {
+  return requestJson<InspectionSessionResponse>(
+    `/api/inspection/session/${payload.sessionId}/manual-confirm`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        operator_id: payload.operatorId,
+        row_index: payload.rowIndex,
+        label: payload.label,
+        confirmed: payload.confirmed,
+      }),
+    }
+  );
+}
+
 export async function completeInspection(payload: {
   sessionId: string;
   operatorId: string;
   workerConfirmed: boolean;
+  boardNo: string;
+  rows: Array<{
+    rowIndex: number;
+    label: string;
+    tubeLExpected: string;
+    tubeRExpected: string;
+    tubeLStatus: string;
+    labelStatus: string;
+    tubeRStatus: string;
+    completionMethod: "AUTO" | "MANUAL";
+    manualConfirmedBy?: string | null;
+    manualConfirmedAt?: string | null;
+    finalStatus: string;
+  }>;
 }) {
   return requestJson<InspectionSessionResponse>(
     `/api/inspection/session/${payload.sessionId}/complete`,
@@ -197,6 +233,20 @@ export async function completeInspection(payload: {
       body: JSON.stringify({
         operator_id: payload.operatorId,
         worker_confirmed: payload.workerConfirmed,
+        board_no: payload.boardNo,
+        rows: payload.rows.map((row) => ({
+          row_index: row.rowIndex,
+          label: row.label,
+          tube_l_expected: row.tubeLExpected,
+          tube_r_expected: row.tubeRExpected,
+          tube_l_status: row.tubeLStatus,
+          label_status: row.labelStatus,
+          tube_r_status: row.tubeRStatus,
+          completion_method: row.completionMethod,
+          manual_confirmed_by: row.manualConfirmedBy ?? null,
+          manual_confirmed_at: row.manualConfirmedAt ?? null,
+          final_status: row.finalStatus,
+        })),
       }),
     }
   );
