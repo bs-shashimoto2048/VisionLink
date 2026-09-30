@@ -142,6 +142,7 @@ export interface InspectionSessionResponse {
   order_no: string;
   serial_no: string;
   terminal_name: string;
+  board_no?: string | null;
   qr_text?: string | null;
   frame_index: number;
   stability_count: number;
