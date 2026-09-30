@@ -126,6 +126,7 @@ Request:
   "qr_text": null,
   "order_no": null,
   "serial_no": "A1AA0001",
+  "board_no": "1",
   "terminal_name": "TB1"
 }
 ```
@@ -177,6 +178,7 @@ Request:
 ### `POST /api/inspection/session/{session_id}/complete`
 
 全端子の最終状態をBackendへ渡し、端子台単位の完了履歴を保存します。
+製番・盤番号・端子台は検査開始時にセッションへ固定され、完了時にFrontendから対象を差し替えることはできません。
 
 Request例:
 
@@ -184,7 +186,6 @@ Request例:
 {
   "operator_id": "1234",
   "worker_confirmed": true,
-  "board_no": "1",
   "rows": [
     {
       "row_index": 0,
