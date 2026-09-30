@@ -91,6 +91,7 @@ class CheckDataTableResponse(BaseModel):
 
 class StartInspectionRequest(InternalDataLookupRequest):
     operator_id: str
+    board_no: str
 
 
 class ManualEditRequest(BaseModel):
@@ -137,7 +138,6 @@ class CompletionRowResult(BaseModel):
 class CompleteRequest(BaseModel):
     operator_id: str
     worker_confirmed: bool = False
-    board_no: str
     rows: list[CompletionRowResult] = Field(default_factory=list)
 
 
@@ -208,6 +208,7 @@ class InspectionSessionResponse(BaseModel):
     order_no: str
     serial_no: str
     terminal_name: str
+    board_no: str | None = None
     qr_text: str | None = None
     frame_index: int = 0
     stability_count: int = 0
