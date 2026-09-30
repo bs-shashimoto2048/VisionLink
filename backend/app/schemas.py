@@ -113,6 +113,7 @@ class ManualConfirmationState(BaseModel):
     confirmed: bool
     confirmed_by: str | None = None
     confirmed_at: str | None = None
+    has_confirmation_history: bool = True
     updated_at: str
 
 
