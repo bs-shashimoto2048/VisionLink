@@ -111,12 +111,15 @@ export function useCamera() {
   });
   const activeDeviceRef = useRef<string | null>(null);
   const activeFacingRef = useRef<CameraFacing>("environment");
+  const diagnosticsAbortRef = useRef<AbortController | null>(null);
 
   const syncState = useCallback((patch: Partial<CameraState>) => {
     setCameraState((current) => ({ ...current, ...patch }));
   }, []);
 
   const stopCamera = useCallback(() => {
+    diagnosticsAbortRef.current?.abort();
+    diagnosticsAbortRef.current = null;
     stream?.getTracks().forEach((track) => track.stop());
     setStream(null);
     setCameraRunning(false);
@@ -146,6 +149,10 @@ export function useCamera() {
         if (videoRef.current) {
           const video = videoRef.current;
           video.srcObject = mediaStream;
+          diagnosticsAbortRef.current?.abort();
+          const diagnosticsController = new AbortController();
+          diagnosticsAbortRef.current = diagnosticsController;
+          const diagnosticsOptions = { signal: diagnosticsController.signal };
 
           const logVideoEvent = (eventName: string) => {
             console.info("[VisionLink][camera]", eventName, {
@@ -162,11 +169,11 @@ export function useCamera() {
           const onPause = () => logVideoEvent("video:pause");
           const onEnded = () => logVideoEvent("video:ended");
 
-          video.addEventListener("playing", onPlaying);
-          video.addEventListener("waiting", onWaiting);
-          video.addEventListener("stalled", onStalled);
-          video.addEventListener("pause", onPause);
-          video.addEventListener("ended", onEnded);
+          video.addEventListener("playing", onPlaying, diagnosticsOptions);
+          video.addEventListener("waiting", onWaiting, diagnosticsOptions);
+          video.addEventListener("stalled", onStalled, diagnosticsOptions);
+          video.addEventListener("pause", onPause, diagnosticsOptions);
+          video.addEventListener("ended", onEnded, diagnosticsOptions);
 
           if (activeTrack) {
             activeTrack.addEventListener("mute", () => {
@@ -175,19 +182,19 @@ export function useCamera() {
                 muted: activeTrack.muted,
                 settings: activeTrack.getSettings(),
               });
-            });
+            }, diagnosticsOptions);
             activeTrack.addEventListener("unmute", () => {
               console.info("[VisionLink][camera] track:unmute", {
                 readyState: activeTrack.readyState,
                 muted: activeTrack.muted,
               });
-            });
+            }, diagnosticsOptions);
             activeTrack.addEventListener("ended", () => {
               console.warn("[VisionLink][camera] track:ended", {
                 readyState: activeTrack.readyState,
                 muted: activeTrack.muted,
               });
-            });
+            }, diagnosticsOptions);
           }
 
           await video.play();
@@ -248,6 +255,7 @@ export function useCamera() {
 
   useEffect(() => {
     return () => {
+      diagnosticsAbortRef.current?.abort();
       stream?.getTracks().forEach((track) => track.stop());
     };
   }, [stream]);
