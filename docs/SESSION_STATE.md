@@ -179,7 +179,22 @@ Frontendでは別途、L / Label / R の全消込状態を使って検査完了�
 
 端子台全体の完了時は `inspection_history` に1件の親履歴、`inspection_history_rows` に全端子の結果を保存します。各端子には `AUTO / MANUAL` の完了方法を保持します。
 
-## 11. Prototypeで注意する点
+## 11. 推論と操作系の並行処理
+
+検査中の操作性を保つため、YOLO / OCR の重い推論処理はセッション状態Lockを保持したまま実行しません。
+
+処理方針:
+
+- FastAPIのフレーム解析はthread poolで実行し、イベントループを塞がない
+- YOLO / PaddleOCRの共有モデル利用は専用pipeline lockで直列化する
+- セッション状態Lockは、推論前のsnapshot取得と推論後の結果反映など短時間だけ保持する
+- 目視確認・解除などの操作系APIは推論中でもセッション状態Lockを取得して処理できる
+- 推論中にセッションが停止・完了した場合、その推論結果は反映しない
+- Frontendの目視チェックは楽観的更新し、Backend保存失敗時だけ元へ戻す
+
+これにより、推論の完了待ちが目視操作のレスポンスへ直接波及しない構造とします。
+
+## 12. Prototypeで注意する点
 
 1. Backendの `check_status` とFrontendの消込状態は別ロジック。完了時にはFrontendの最終消込スナップショットをBackendが検証して履歴化する
 2. 認証はモック
