@@ -74,7 +74,6 @@ export async function lookupInternalData(payload: {
   orderNo?: string;
   serialNo?: string;
   terminalName?: string;
-  boardNo: string;
 }) {
   return requestJson<InternalDataLookupResponse>("/api/internal-data/lookup", {
     method: "POST",
@@ -84,7 +83,6 @@ export async function lookupInternalData(payload: {
       order_no: payload.orderNo || null,
       serial_no: payload.serialNo || null,
       terminal_name: payload.terminalName || null,
-      board_no: payload.boardNo,
     }),
   });
 }
@@ -115,6 +113,7 @@ export async function startInspection(payload: {
   orderNo?: string;
   serialNo?: string;
   terminalName?: string;
+  boardNo: string;
 }) {
   return requestJson<InspectionSessionResponse>("/api/inspection/session/start", {
     method: "POST",
@@ -125,6 +124,7 @@ export async function startInspection(payload: {
       order_no: payload.orderNo || null,
       serial_no: payload.serialNo || null,
       terminal_name: payload.terminalName || null,
+      board_no: payload.boardNo,
     }),
   });
 }
