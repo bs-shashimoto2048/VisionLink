@@ -56,6 +56,7 @@ export interface CheckRow {
   manual_confirmed?: boolean;
   manual_confirmed_by?: string | null;
   manual_confirmed_at?: string | null;
+  manual_confirmation_seen?: boolean;
 }
 
 export interface CheckTableResponse {
@@ -123,6 +124,7 @@ export interface ManualConfirmationState {
   confirmed: boolean;
   confirmed_by?: string | null;
   confirmed_at?: string | null;
+  has_confirmation_history?: boolean;
   updated_at: string;
 }
 
