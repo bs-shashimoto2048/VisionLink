@@ -18,6 +18,7 @@ from .schemas import (
     LoginRequest,
     LoginResponse,
     ManualConfirmationRequest,
+    ManualConfirmationState,
     ManualEditRequest,
     PerformanceMetrics,
     StartInspectionRequest,
@@ -172,11 +173,11 @@ async def frame_analyze(
         raise HTTPException(status_code=500, detail=f"frame analysis failed: {exc}") from exc
 
 
-@router.post("/inspection/session/{session_id}/manual-confirm", response_model=InspectionSessionResponse)
+@router.post("/inspection/session/{session_id}/manual-confirm", response_model=ManualConfirmationState)
 def manual_confirm(
     session_id: str,
     request: ManualConfirmationRequest,
-) -> InspectionSessionResponse:
+) -> ManualConfirmationState:
     try:
         return manager.set_manual_confirmation(session_id, request)
     except PermissionError as exc:
