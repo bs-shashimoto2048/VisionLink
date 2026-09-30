@@ -154,18 +154,81 @@ Request は pause と同じです。
 
 Request は pause と同じです。
 
-### `POST /api/inspection/session/{session_id}/complete`
+### `POST /api/inspection/session/{session_id}/manual-confirm`
+
+OCRで自動消込できない端子を、作業者が実物と検査データを目視照合して確認します。
 
 Request:
 
 ```json
 {
   "operator_id": "1234",
-  "worker_confirmed": true
+  "row_index": 1,
+  "label": "23",
+  "confirmed": true
 }
 ```
 
-Prototype のUIでは全行消込後に作業者確認を行って完了します。
+- `confirmed=true`: `MANUAL_CONFIRMED` イベントを追記
+- `confirmed=false`: `MANUAL_CONFIRM_REVOKED` イベントを追記
+- L / Label / R のAI/OCR判定値自体は変更しません
+- 現在の目視確認状態はセッションResponseの `manual_confirmations` で復元できます
+
+### `POST /api/inspection/session/{session_id}/complete`
+
+全端子の最終状態をBackendへ渡し、端子台単位の完了履歴を保存します。
+
+Request例:
+
+```json
+{
+  "operator_id": "1234",
+  "worker_confirmed": true,
+  "board_no": "1",
+  "rows": [
+    {
+      "row_index": 0,
+      "label": "22",
+      "tube_l_expected": "A3S7N2D",
+      "tube_r_expected": "A3S7N2D",
+      "tube_l_status": "OK",
+      "label_status": "OK",
+      "tube_r_status": "OK",
+      "completion_method": "AUTO",
+      "final_status": "OK"
+    },
+    {
+      "row_index": 1,
+      "label": "23",
+      "tube_l_expected": "L1P8",
+      "tube_r_expected": "L1P8",
+      "tube_l_status": "OK",
+      "label_status": "OK",
+      "tube_r_status": "PENDING",
+      "completion_method": "MANUAL",
+      "final_status": "OK"
+    }
+  ]
+}
+```
+
+AUTO 行は L / Label / R がすべて `OK` であることをBackendでも確認します。
+MANUAL 行は、同じセッション・行・Labelに有効な目視確認が保存されていることをBackendで確認します。
+最終完了時は1端子台につき1件の親履歴を作成し、その配下に全端子の結果を保存します。
+
+### `GET /api/inspection/history/{session_id}`
+
+完了済み端子台の履歴を取得します。
+
+Responseには以下を含みます。
+
+- 製番 / 盤番号 / 端子台
+- 作業者
+- 開始 / 完了日時
+- AUTO件数 / MANUAL件数 / 全端子数
+- 全端子の L / Label / R 判定
+- 各端子の `completion_method: AUTO | MANUAL`
+- MANUALの場合の目視確認者 / 目視確認日時
 
 ## 7. フレーム解析
 
@@ -225,7 +288,8 @@ Content-Type: `multipart/form-data`
     "yolo_ms": 20,
     "ocr_ms": 80,
     "total_ms": 100
-  }
+  },
+  "manual_confirmations": []
 }
 ```
 
