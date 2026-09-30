@@ -568,7 +568,7 @@ class SessionManager:
         self,
         session_id: str,
         request: ManualConfirmationRequest,
-    ) -> InspectionSessionResponse:
+    ) -> ManualConfirmationState:
         with self._lock:
             session = self._ensure_session(session_id)
             if session.operator_id != request.operator_id:
@@ -615,7 +615,7 @@ class SessionManager:
                 created_at=timestamp,
             )
             persist_session_snapshot(session.snapshot())
-            return session.to_response()
+            return state
 
     def pause_session(self, session_id: str, operator_id: str) -> InspectionSessionResponse:
         with self._lock:
