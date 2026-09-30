@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 import logging
 
 from .schemas import (
@@ -25,7 +26,6 @@ from .db import load_inspection_history
 from .services.check_data import CheckDataError, list_boards, list_serials, list_terminals, load_table
 from .services.internal_data import lookup_internal_data
 from .services.ai_pipeline import AIModelError, pipeline
-from .services.label_ocr import run_rotated_label_ocr
 from .services.session_manager import manager
 
 router = APIRouter(prefix="/api")
@@ -127,14 +127,15 @@ async def frame_analyze(
 ) -> FrameAnalyzeResponse:
     try:
         frame_bytes = await frame.read()
-        response = manager.process_frame(
-            session_id=session_id,
-            operator_id=operator_id,
-            frame_bytes=frame_bytes,
-            frame_index=frame_index,
-            yolo_confidence_threshold=yolo_confidence_threshold,
-            ocr_confidence_threshold=ocr_confidence_threshold,
-            rotate_left_tube_ocr=rotate_left_tube_ocr,
+        response = await run_in_threadpool(
+            manager.process_frame,
+            session_id,
+            operator_id,
+            frame_bytes,
+            frame_index,
+            yolo_confidence_threshold,
+            ocr_confidence_threshold,
+            rotate_left_tube_ocr,
         )
         if rotate_label_ocr:
             label_boxes = {
@@ -142,7 +143,8 @@ async def frame_analyze(
                 for det in response.detections
                 if pipeline._is_nmb_detection(det)
             }
-            label_results, label_ocr_ms = run_rotated_label_ocr(
+            label_results, label_ocr_ms = await run_in_threadpool(
+                manager.process_rotated_label_ocr,
                 frame_bytes,
                 response.detections,
                 ocr_confidence_threshold,
