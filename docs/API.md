@@ -173,7 +173,9 @@ Request:
 - `confirmed=true`: `MANUAL_CONFIRMED` イベントを追記
 - `confirmed=false`: `MANUAL_CONFIRM_REVOKED` イベントを追記
 - L / Label / R のAI/OCR判定値自体は変更しません
-- 現在の目視確認状態はセッションResponseの `manual_confirmations` で復元できます
+- Response は変更した1件の `ManualConfirmationState` のみ返します
+- セッション全体の現在状態は `GET /api/inspection/session/{session_id}` の `manual_confirmations` で復元できます
+- 目視確認時の共有CSV再読込はセッションLock外で行い、推論処理を待たせない設計です
 
 ### `POST /api/inspection/session/{session_id}/complete`
 
