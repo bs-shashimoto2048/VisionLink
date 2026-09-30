@@ -15,6 +15,8 @@ from ..schemas import (
     InspectionRowTemplate,
     InspectionSessionResponse,
     InternalDataLookupRequest,
+    ManualConfirmationRequest,
+    ManualConfirmationState,
     ManualEditHistoryEntry,
     ManualEditRequest,
     OCRResult,
@@ -27,7 +29,16 @@ from .ai_pipeline import AIModelError, DetectionResult, pipeline
 from .internal_data import lookup_internal_data
 from .judgement import effective_status, judge_row
 from .stability import OcrStabilityState, evaluate_ocr_stability
-from .store import now_iso, persist_rows, persist_session_snapshot, persist_summary
+from .store import (
+    load_manual_confirmation_states,
+    now_iso,
+    persist_inspection_history,
+    persist_manual_confirmation,
+    persist_manual_confirmation_event,
+    persist_rows,
+    persist_session_snapshot,
+    persist_summary,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +101,7 @@ class RuntimeSession:
     detections: list[DetectionBox] = field(default_factory=list)
     ocr_results: list[OCRResult] = field(default_factory=list)
     worker_confirmed: bool = False
+    manual_confirmations: dict[int, ManualConfirmationState] = field(default_factory=dict)
     completion_status: SessionStatus = SessionStatus.IN_PROGRESS
     completed_at: str | None = None
     performance: PerformanceMetrics = field(default_factory=PerformanceMetrics)
@@ -160,6 +172,10 @@ class RuntimeSession:
             rows=[row.to_schema() for row in self.rows],
             summary=self.summary(),
             performance=self.performance,
+            manual_confirmations=[
+                self.manual_confirmations[index]
+                for index in sorted(self.manual_confirmations)
+            ],
         )
 
 
@@ -230,6 +246,10 @@ class SessionManager:
             )
             for row in row_rows
         ]
+        manual_confirmations = {
+            item["row_index"]: ManualConfirmationState(**item)
+            for item in load_manual_confirmation_states(session_id)
+        }
         session = RuntimeSession(
             session_id=session_row["session_id"],
             operator_id=session_row["operator_id"],
@@ -242,6 +262,7 @@ class SessionManager:
             frame_index=session_row["frame_index"],
             stability_count=session_row["stability_count"],
             worker_confirmed=bool(session_row["worker_confirmed"]),
+            manual_confirmations=manual_confirmations,
             completion_status=SessionStatus(session_row["completion_status"]),
             created_at=session_row["created_at"],
             updated_at=session_row["updated_at"],
@@ -493,6 +514,49 @@ class SessionManager:
             persist_session_snapshot(session.snapshot())
             return session.to_response()
 
+    def set_manual_confirmation(
+        self,
+        session_id: str,
+        request: ManualConfirmationRequest,
+    ) -> InspectionSessionResponse:
+        with self._lock:
+            session = self._ensure_session(session_id)
+            if session.operator_id != request.operator_id:
+                raise PermissionError("operator mismatch")
+            if session.status not in (SessionStatus.IN_PROGRESS, SessionStatus.PAUSED):
+                raise ValueError("manual confirmation is only available for an active inspection")
+
+            timestamp = now_iso()
+            state = ManualConfirmationState(
+                row_index=request.row_index,
+                label=request.label,
+                confirmed=request.confirmed,
+                confirmed_by=request.operator_id if request.confirmed else None,
+                confirmed_at=timestamp if request.confirmed else None,
+                updated_at=timestamp,
+            )
+            session.manual_confirmations[request.row_index] = state
+            session.updated_at = timestamp
+            persist_manual_confirmation(
+                session_id=session.session_id,
+                row_index=request.row_index,
+                label=request.label,
+                confirmed=request.confirmed,
+                confirmed_by=state.confirmed_by,
+                confirmed_at=state.confirmed_at,
+                updated_at=timestamp,
+            )
+            persist_manual_confirmation_event(
+                session_id=session.session_id,
+                row_index=request.row_index,
+                label=request.label,
+                action="MANUAL_CONFIRMED" if request.confirmed else "MANUAL_CONFIRM_REVOKED",
+                operator_id=request.operator_id,
+                created_at=timestamp,
+            )
+            persist_session_snapshot(session.snapshot())
+            return session.to_response()
+
     def pause_session(self, session_id: str, operator_id: str) -> InspectionSessionResponse:
         with self._lock:
             session = self._ensure_session(session_id)
@@ -531,11 +595,73 @@ class SessionManager:
                 raise PermissionError("operator mismatch")
             if not request.worker_confirmed:
                 raise ValueError("worker confirmation is required")
+            if not request.rows:
+                raise ValueError("completion row results are required")
+
+            history_rows: list[dict] = []
+            auto_count = 0
+            manual_count = 0
+            for row in request.rows:
+                if row.final_status != "OK":
+                    raise ValueError(f"row {row.label} is not complete")
+                if row.completion_method.value == "AUTO":
+                    if not (
+                        row.tube_l_status == "OK"
+                        and row.label_status == "OK"
+                        and row.tube_r_status == "OK"
+                    ):
+                        raise ValueError(f"row {row.label} does not satisfy AUTO completion")
+                    auto_count += 1
+                else:
+                    confirmation = session.manual_confirmations.get(row.row_index)
+                    if (
+                        confirmation is None
+                        or not confirmation.confirmed
+                        or confirmation.label != row.label
+                    ):
+                        raise ValueError(f"row {row.label} is not manually confirmed")
+                    manual_count += 1
+
+                history_rows.append(
+                    {
+                        "history_id": f"history-{session.session_id}",
+                        "row_index": row.row_index,
+                        "label": row.label,
+                        "tube_l_expected": row.tube_l_expected,
+                        "tube_r_expected": row.tube_r_expected,
+                        "tube_l_status": row.tube_l_status,
+                        "label_status": row.label_status,
+                        "tube_r_status": row.tube_r_status,
+                        "completion_method": row.completion_method.value,
+                        "manual_confirmed_by": row.manual_confirmed_by,
+                        "manual_confirmed_at": row.manual_confirmed_at,
+                        "final_status": row.final_status,
+                    }
+                )
+
             session.worker_confirmed = True
             session.status = SessionStatus.COMPLETED
             session.completion_status = SessionStatus.COMPLETED
             session.completed_at = now_iso()
-            session.updated_at = now_iso()
+            session.updated_at = session.completed_at
+
+            persist_inspection_history(
+                {
+                    "history_id": f"history-{session.session_id}",
+                    "session_id": session.session_id,
+                    "serial_no": session.serial_no,
+                    "board_no": request.board_no,
+                    "terminal_name": session.terminal_name,
+                    "operator_id": session.operator_id,
+                    "started_at": session.created_at,
+                    "completed_at": session.completed_at,
+                    "final_status": "COMPLETED",
+                    "auto_count": auto_count,
+                    "manual_count": manual_count,
+                    "total_count": len(history_rows),
+                },
+                history_rows,
+            )
 
             summary = session.summary()
             persist_rows(session.session_id, [item.to_record() for item in session.rows])
