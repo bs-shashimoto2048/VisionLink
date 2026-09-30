@@ -345,6 +345,7 @@ function App() {
       orderNo: intake.orderNo || undefined,
       serialNo: selectedSerial || undefined,
       terminalName: selectedTerminal || undefined,
+      boardNo: selectedBoard,
     });
     setInspection(response);
     setLastFrameAnalysis(null);
@@ -431,7 +432,6 @@ function App() {
       sessionId: inspection.session_id,
       operatorId: operator.operator_id,
       workerConfirmed,
-      boardNo: selectedBoard,
       rows: checkRows.map((row, rowIndex) => ({
         rowIndex,
         label: row.label,
