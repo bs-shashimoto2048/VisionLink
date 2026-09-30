@@ -601,9 +601,16 @@ class SessionManager:
             history_rows: list[dict] = []
             auto_count = 0
             manual_count = 0
+            seen_row_indexes: set[int] = set()
             for row in request.rows:
+                if row.row_index in seen_row_indexes:
+                    raise ValueError(f"duplicate row index: {row.row_index}")
+                seen_row_indexes.add(row.row_index)
                 if row.final_status != "OK":
                     raise ValueError(f"row {row.label} is not complete")
+
+                manual_confirmed_by: str | None = None
+                manual_confirmed_at: str | None = None
                 if row.completion_method.value == "AUTO":
                     if not (
                         row.tube_l_status == "OK"
@@ -620,6 +627,8 @@ class SessionManager:
                         or confirmation.label != row.label
                     ):
                         raise ValueError(f"row {row.label} is not manually confirmed")
+                    manual_confirmed_by = confirmation.confirmed_by
+                    manual_confirmed_at = confirmation.confirmed_at
                     manual_count += 1
 
                 history_rows.append(
@@ -633,8 +642,8 @@ class SessionManager:
                         "label_status": row.label_status,
                         "tube_r_status": row.tube_r_status,
                         "completion_method": row.completion_method.value,
-                        "manual_confirmed_by": row.manual_confirmed_by,
-                        "manual_confirmed_at": row.manual_confirmed_at,
+                        "manual_confirmed_by": manual_confirmed_by,
+                        "manual_confirmed_at": manual_confirmed_at,
                         "final_status": row.final_status,
                     }
                 )
