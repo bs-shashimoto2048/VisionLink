@@ -4,6 +4,7 @@ import type {
   LoginResponse,
   CheckStatus,
   CheckTableResponse,
+  ManualConfirmationState,
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -193,7 +194,7 @@ export async function setManualConfirmation(payload: {
   label: string;
   confirmed: boolean;
 }) {
-  return requestJson<InspectionSessionResponse>(
+  return requestJson<ManualConfirmationState>(
     `/api/inspection/session/${payload.sessionId}/manual-confirm`,
     {
       method: "POST",
