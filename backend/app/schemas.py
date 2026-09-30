@@ -99,9 +99,46 @@ class ManualEditRequest(BaseModel):
     note: str | None = None
 
 
+class ManualConfirmationRequest(BaseModel):
+    operator_id: str
+    row_index: int
+    label: str
+    confirmed: bool
+
+
+class ManualConfirmationState(BaseModel):
+    row_index: int
+    label: str
+    confirmed: bool
+    confirmed_by: str | None = None
+    confirmed_at: str | None = None
+    updated_at: str
+
+
+class CompletionMethod(str, Enum):
+    AUTO = "AUTO"
+    MANUAL = "MANUAL"
+
+
+class CompletionRowResult(BaseModel):
+    row_index: int
+    label: str
+    tube_l_expected: str
+    tube_r_expected: str
+    tube_l_status: str
+    label_status: str
+    tube_r_status: str
+    completion_method: CompletionMethod
+    manual_confirmed_by: str | None = None
+    manual_confirmed_at: str | None = None
+    final_status: str = "OK"
+
+
 class CompleteRequest(BaseModel):
     operator_id: str
     worker_confirmed: bool = False
+    board_no: str
+    rows: list[CompletionRowResult] = Field(default_factory=list)
 
 
 class DetectionBox(BaseModel):
@@ -182,6 +219,7 @@ class InspectionSessionResponse(BaseModel):
     rows: list[InspectionRowState] = Field(default_factory=list)
     summary: SessionSummary | None = None
     performance: PerformanceMetrics = Field(default_factory=PerformanceMetrics)
+    manual_confirmations: list[ManualConfirmationState] = Field(default_factory=list)
 
 
 class FrameAnalyzeResponse(InspectionSessionResponse):
