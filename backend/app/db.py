@@ -8,9 +8,23 @@ from typing import Iterable
 from .config import DB_PATH
 
 
+class ClosingConnection(sqlite3.Connection):
+    """Commit/rollback like sqlite3.Connection, then always release the file handle."""
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            return super().__exit__(exc_type, exc_value, traceback)
+        finally:
+            self.close()
+
+
 def get_connection() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    conn = sqlite3.connect(
+        DB_PATH,
+        check_same_thread=False,
+        factory=ClosingConnection,
+    )
     conn.row_factory = sqlite3.Row
     return conn
 
