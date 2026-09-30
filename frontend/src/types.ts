@@ -56,7 +56,6 @@ export interface CheckRow {
   manual_confirmed?: boolean;
   manual_confirmed_by?: string | null;
   manual_confirmed_at?: string | null;
-  manual_confirmation_seen?: boolean;
 }
 
 export interface CheckTableResponse {
