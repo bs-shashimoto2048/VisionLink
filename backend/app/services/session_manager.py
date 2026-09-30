@@ -26,6 +26,7 @@ from ..schemas import (
     StartInspectionRequest,
 )
 from .ai_pipeline import AIModelError, DetectionResult, pipeline
+from .check_data import load_table
 from .internal_data import lookup_internal_data
 from .judgement import effective_status, judge_row
 from .stability import OcrStabilityState, evaluate_ocr_stability
@@ -598,11 +599,27 @@ class SessionManager:
             if not request.rows:
                 raise ValueError("completion row results are required")
 
+            check_table = load_table(session.serial_no, request.board_no, session.terminal_name)
+            if len(request.rows) != len(check_table.rows):
+                raise ValueError(
+                    f"completion rows do not match check data: expected {len(check_table.rows)}, got {len(request.rows)}"
+                )
+
             history_rows: list[dict] = []
             auto_count = 0
             manual_count = 0
             seen_row_indexes: set[int] = set()
             for row in request.rows:
+                if row.row_index < 0 or row.row_index >= len(check_table.rows):
+                    raise ValueError(f"invalid row index: {row.row_index}")
+                expected = check_table.rows[row.row_index]
+                if (
+                    row.label != expected.label
+                    or row.tube_l_expected != expected.tube_l
+                    or row.tube_r_expected != expected.tube_r
+                ):
+                    raise ValueError(f"row {row.row_index} does not match current check data")
+
                 if row.row_index in seen_row_indexes:
                     raise ValueError(f"duplicate row index: {row.row_index}")
                 seen_row_indexes.add(row.row_index)
