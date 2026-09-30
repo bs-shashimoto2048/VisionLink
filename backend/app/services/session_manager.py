@@ -548,6 +548,7 @@ class SessionManager:
                 confirmed=request.confirmed,
                 confirmed_by=request.operator_id if request.confirmed else None,
                 confirmed_at=timestamp if request.confirmed else None,
+                has_confirmation_history=True,
                 updated_at=timestamp,
             )
             session.manual_confirmations[request.row_index] = state
