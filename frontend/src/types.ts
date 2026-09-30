@@ -53,6 +53,9 @@ export interface CheckRow {
   confirm_status?: CheckDataStatus;
   all_status?: CheckDataStatus;
   completed?: boolean;
+  manual_confirmed?: boolean;
+  manual_confirmed_by?: string | null;
+  manual_confirmed_at?: string | null;
 }
 
 export interface CheckTableResponse {
@@ -114,6 +117,15 @@ export interface InspectionRowState {
   updated_at: string;
 }
 
+export interface ManualConfirmationState {
+  row_index: number;
+  label: string;
+  confirmed: boolean;
+  confirmed_by?: string | null;
+  confirmed_at?: string | null;
+  updated_at: string;
+}
+
 export interface SessionSummary {
   ok_count: number;
   ng_count: number;
@@ -141,6 +153,7 @@ export interface InspectionSessionResponse {
   rows: InspectionRowState[];
   summary?: SessionSummary | null;
   performance: PerformanceMetrics;
+  manual_confirmations: ManualConfirmationState[];
 }
 
 export interface CameraInfo {
