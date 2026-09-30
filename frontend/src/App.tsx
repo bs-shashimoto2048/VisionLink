@@ -597,6 +597,7 @@ function App() {
               highlightKey={highlightKey}
               focusKey={focusKey}
               allCompleted={allRowsCompleted}
+              manualEnabled={Boolean(inspection && (inspection.status === SessionStatus.IN_PROGRESS || inspection.status === SessionStatus.PAUSED))}
               onManualToggle={(row, index) => void handleManualConfirmation(row, index)}
             />
 
@@ -755,11 +756,12 @@ function allStatusLabel(row: CheckRow) {
   return "";
 }
 
-function CheckDataTable({ rows, highlightKey, focusKey, allCompleted, onManualToggle }: {
+function CheckDataTable({ rows, highlightKey, focusKey, allCompleted, manualEnabled, onManualToggle }: {
   rows: CheckRow[];
   highlightKey?: string | null;
   focusKey?: string | null;
   allCompleted?: boolean;
+  manualEnabled: boolean;
   onManualToggle: (row: CheckRow, index: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -815,7 +817,7 @@ function CheckDataTable({ rows, highlightKey, focusKey, allCompleted, onManualTo
                     type="checkbox"
                     aria-label={`端子番号 ${row.label} を目視確認`}
                     checked={Boolean(row.manual_confirmed)}
-                    disabled={row.all_status === "OK" && !row.manual_confirmed}
+                    disabled={!manualEnabled || (row.all_status === "OK" && !row.manual_confirmed)}
                     onChange={() => onManualToggle(row, index)}
                   />
                 </td>
