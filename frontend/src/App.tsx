@@ -124,6 +124,7 @@ function App() {
   const [checkDataLoading, setCheckDataLoading] = useState<string | null>(null);
   const [checkDataError, setCheckDataError] = useState<string | null>(null);
   const pendingLookup = useRef(false);
+  const manualConfirmationSeenRef = useRef(false);
   const guideX = 0.5;
 
   const bannerTimer = useRef<number | null>(null);
@@ -257,6 +258,12 @@ function App() {
       }
     },
   });
+
+  useEffect(() => {
+    manualConfirmationSeenRef.current = Boolean(
+      inspection?.manual_confirmations.some((item) => Boolean(item.has_confirmation_history))
+    );
+  }, [inspection?.session_id, inspection?.manual_confirmations]);
 
   const statusLabel = inspection?.status ?? (operator ? "待機中" : "未ログイン");
   const inspectionRunning = inspection?.status === SessionStatus.IN_PROGRESS;
@@ -395,9 +402,7 @@ function App() {
   async function handleManualConfirmation(row: CheckRow, rowIndex: number) {
     if (!operator || !inspection) return;
     const nextConfirmed = !Boolean(row.manual_confirmed);
-    const hasManualConfirmationHistory = inspection.manual_confirmations.some(
-      (item) => Boolean(item.has_confirmation_history)
-    );
+    const hasManualConfirmationHistory = manualConfirmationSeenRef.current;
     const requiresFirstConfirmation = nextConfirmed && !hasManualConfirmationHistory;
     if (requiresFirstConfirmation) {
       const message = `端子番号 ${row.label} を目視確認済みにしますか？\n実物と検査データが一致していることを確認してください。`;
@@ -419,6 +424,7 @@ function App() {
       )
     );
     setWorkerConfirmed(false);
+    if (nextConfirmed) manualConfirmationSeenRef.current = true;
 
     try {
       const response = await setManualConfirmation({
@@ -440,16 +446,9 @@ function App() {
             : item
         )
       );
-      setInspection((current) => {
-        if (!current) return current;
-        const manualConfirmations = [...current.manual_confirmations];
-        const existingIndex = manualConfirmations.findIndex((item) => item.row_index === response.row_index);
-        if (existingIndex >= 0) manualConfirmations[existingIndex] = response;
-        else manualConfirmations.push(response);
-        return { ...current, manual_confirmations: manualConfirmations };
-      });
       showBanner(nextConfirmed ? `端子番号 ${row.label} を目視確認しました` : `端子番号 ${row.label} の目視確認を解除しました`);
     } catch (error) {
+      if (requiresFirstConfirmation) manualConfirmationSeenRef.current = false;
       setCheckRows((rows) =>
         rows.map((item, index) => (index === rowIndex ? previousRow : item))
       );
