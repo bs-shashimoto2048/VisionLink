@@ -530,20 +530,37 @@ button:disabled {
   white-space: nowrap;
 }
 
-/* 列幅配分(L / Label / R / ALL の4列): L・R=広め(値8文字) / Label=中 / ALL=小（全カラム1行に収める） */
+/* 列幅配分(目視 / L / Label / R / ALL の5列)。 */
 .check-data-table th:nth-child(1),
-.check-data-table td:nth-child(1),
-.check-data-table th:nth-child(3),
-.check-data-table td:nth-child(3) {
-  width: 33%;
+.check-data-table td:nth-child(1) {
+  width: 11%;
+  text-align: center;
 }
 .check-data-table th:nth-child(2),
-.check-data-table td:nth-child(2) {
-  width: 18%;
-}
+.check-data-table td:nth-child(2),
 .check-data-table th:nth-child(4),
 .check-data-table td:nth-child(4) {
+  width: 29%;
+}
+.check-data-table th:nth-child(3),
+.check-data-table td:nth-child(3) {
   width: 16%;
+}
+.check-data-table th:nth-child(5),
+.check-data-table td:nth-child(5) {
+  width: 15%;
+}
+
+.manual-check-cell input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  vertical-align: middle;
+  cursor: pointer;
+}
+
+.manual-check-cell input:disabled {
+  cursor: not-allowed;
 }
 
 .check-data-table thead th {
