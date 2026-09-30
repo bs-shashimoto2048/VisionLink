@@ -22,6 +22,7 @@ class InspectionHistoryStorageTest(unittest.TestCase):
                 "order_no": "ORD-1",
                 "serial_no": "A1AA0001",
                 "terminal_name": "TB1FL",
+                "board_no": "1",
                 "status": "IN_PROGRESS",
                 "frame_index": 0,
                 "stability_count": 0,
