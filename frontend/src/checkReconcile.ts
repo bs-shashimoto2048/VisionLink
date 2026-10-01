@@ -159,7 +159,10 @@ export function reconcileCheckRows(args: {
     const rowIndex = nextRows.findIndex((row) => normalizeCheckText(row.label) === label.text);
     if (rowIndex < 0) continue;
     const row = nextRows[rowIndex];
-    if (row.completed || row.all_status === "OK") continue;
+    // AUTO and MANUAL are mutually exclusive completion paths.
+    // Once a worker confirms a row visually, keep the AI/OCR statuses as they
+    // were at that moment and do not let later inference change the row.
+    if (row.manual_confirmed || row.completed || row.all_status === "OK") continue;
 
     const expectedLeft = normalizeCheckText(row.tube_l);
     const expectedRight = normalizeCheckText(row.tube_r);

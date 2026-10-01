@@ -10,7 +10,7 @@ VisionLink Backendは検査処理をセッション単位で管理します。
 
 - `session_id`
 - `operator_id`
-- `order_no / serial_no / terminal_name / qr_text`
+- `order_no / serial_no / board_no / terminal_name / qr_text`
 - Backend側の検査行
 - `status`
 - `frame_index`
@@ -18,6 +18,7 @@ VisionLink Backendは検査処理をセッション単位で管理します。
 - 最新YOLO detections
 - 最新OCR results
 - 作業者確認状態
+- 端子ごとの目視確認状態
 - performance
 - 作成/更新/完了日時
 
@@ -48,12 +49,13 @@ VisionLink Backendは検査処理をセッション単位で管理します。
 
 `POST /api/inspection/session/start`
 
-1. 内部データを取得
-2. `RuntimeRow` を生成
-3. UUIDの `session_id` を発行
-4. セッションsnapshotを保存
-5. 行データを保存
-6. メモリ上のSessionManagerへ登録
+1. 製番・盤番号・端子台を検査セッションへ固定
+2. 内部データを取得
+3. `RuntimeRow` を生成
+4. UUIDの `session_id` を発行
+5. セッションsnapshotを保存
+6. 行データを保存
+7. メモリ上のSessionManagerへ登録
 
 ## 4. フレーム処理
 
@@ -139,6 +141,7 @@ ocr_results
 rows
 summary
 performance
+manual_confirmations
 ```
 
 ## 8. 保存
@@ -167,9 +170,33 @@ Prototypeのログイン自体はモックであるため、この仕組みを�
 
 Frontendでは別途、L / Label / R の全消込状態を使って検査完了可否を制御します。
 
-## 11. Prototypeで注意する点
+各端子は次のどちらかで完了扱いになります。
 
-1. Backendの `check_status` とFrontendの消込状態は別ロジック
+- AUTO: L / Label / R がすべてAI/OCRでOK
+- MANUAL: 作業者が実物と検査データを目視照合し、端子単位で確認済み
+
+目視確認は L / Label / R の判定値を上書きしません。現在状態は `inspection_manual_confirmations`、追加・解除操作は `inspection_manual_confirmation_events` へ追記します。
+
+端子台全体の完了時は `inspection_history` に1件の親履歴、`inspection_history_rows` に全端子の結果を保存します。各端子には `AUTO / MANUAL` の完了方法を保持します。
+
+## 11. 推論と操作系の並行処理
+
+検査中の操作性を保つため、YOLO / OCR の重い推論処理はセッション状態Lockを保持したまま実行しません。
+
+処理方針:
+
+- FastAPIのフレーム解析はthread poolで実行し、イベントループを塞がない
+- YOLO / PaddleOCRの共有モデル利用は専用pipeline lockで直列化する
+- セッション状態Lockは、推論前のsnapshot取得と推論後の結果反映など短時間だけ保持する
+- 目視確認・解除などの操作系APIは推論中でもセッション状態Lockを取得して処理できる
+- 推論中にセッションが停止・完了した場合、その推論結果は反映しない
+- Frontendの目視チェックは楽観的更新し、Backend保存失敗時だけ元へ戻す
+
+これにより、推論の完了待ちが目視操作のレスポンスへ直接波及しない構造とします。
+
+## 12. Prototypeで注意する点
+
+1. Backendの `check_status` とFrontendの消込状態は別ロジック。完了時にはFrontendの最終消込スナップショットをBackendが検証して履歴化する
 2. 認証はモック
 3. 検査履歴/監査要件は本番仕様未確定
 4. Label 90°補正はAPI層で追加される

@@ -53,6 +53,9 @@ export interface CheckRow {
   confirm_status?: CheckDataStatus;
   all_status?: CheckDataStatus;
   completed?: boolean;
+  manual_confirmed?: boolean;
+  manual_confirmed_by?: string | null;
+  manual_confirmed_at?: string | null;
 }
 
 export interface CheckTableResponse {
@@ -114,6 +117,16 @@ export interface InspectionRowState {
   updated_at: string;
 }
 
+export interface ManualConfirmationState {
+  row_index: number;
+  label: string;
+  confirmed: boolean;
+  confirmed_by?: string | null;
+  confirmed_at?: string | null;
+  has_confirmation_history?: boolean;
+  updated_at: string;
+}
+
 export interface SessionSummary {
   ok_count: number;
   ng_count: number;
@@ -130,6 +143,7 @@ export interface InspectionSessionResponse {
   order_no: string;
   serial_no: string;
   terminal_name: string;
+  board_no?: string | null;
   qr_text?: string | null;
   frame_index: number;
   stability_count: number;
@@ -141,6 +155,7 @@ export interface InspectionSessionResponse {
   rows: InspectionRowState[];
   summary?: SessionSummary | null;
   performance: PerformanceMetrics;
+  manual_confirmations: ManualConfirmationState[];
 }
 
 export interface CameraInfo {

@@ -14,6 +14,7 @@ import {
   lookupInternalData,
   pauseInspection,
   resumeInspection,
+  setManualConfirmation,
   startInspection,
 } from "./api";
 import { useCamera, useFrameSampler } from "./camera";
@@ -46,7 +47,24 @@ function rowKey(row: CheckRow, index: number) {
 }
 
 function isRowCompleted(row: CheckRow) {
-  return Boolean(row.completed) || row.all_status === "OK";
+  return Boolean(row.manual_confirmed) || Boolean(row.completed) || row.all_status === "OK";
+}
+
+function applyManualConfirmations(
+  rows: CheckRow[],
+  confirmations: InspectionSessionResponse["manual_confirmations"] = []
+) {
+  const byIndex = new Map(confirmations.map((item) => [item.row_index, item]));
+  return rows.map((row, index) => {
+    const confirmation = byIndex.get(index);
+    if (!confirmation) return row;
+    return {
+      ...row,
+      manual_confirmed: confirmation.confirmed,
+      manual_confirmed_by: confirmation.confirmed_by ?? null,
+      manual_confirmed_at: confirmation.confirmed_at ?? null,
+    };
+  });
 }
 
 function sessionStatusLabel(status?: string) {
@@ -88,6 +106,7 @@ function App() {
   const [banner, setBanner] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [pendingManualConfirmation, setPendingManualConfirmation] = useState<{ row: CheckRow; rowIndex: number } | null>(null);
   const [overlayMode, setOverlayMode] = useState<keyof typeof OVERLAY_MODES>("inference_result");
   const [yoloThreshold, setYoloThreshold] = useState(0.6);
   const [ocrThreshold, setOcrThreshold] = useState(0.6);
@@ -106,6 +125,8 @@ function App() {
   const [checkDataLoading, setCheckDataLoading] = useState<string | null>(null);
   const [checkDataError, setCheckDataError] = useState<string | null>(null);
   const pendingLookup = useRef(false);
+  const manualConfirmationSeenRef = useRef(false);
+  const manualConfirmationSessionRef = useRef<string | null>(null);
   const guideX = 0.5;
 
   const bannerTimer = useRef<number | null>(null);
@@ -240,6 +261,19 @@ function App() {
     },
   });
 
+  useEffect(() => {
+    const sessionId = inspection?.session_id ?? null;
+    const hasHistory = Boolean(
+      inspection?.manual_confirmations.some((item) => Boolean(item.has_confirmation_history))
+    );
+    if (manualConfirmationSessionRef.current !== sessionId) {
+      manualConfirmationSessionRef.current = sessionId;
+      manualConfirmationSeenRef.current = hasHistory;
+      return;
+    }
+    if (hasHistory) manualConfirmationSeenRef.current = true;
+  }, [inspection?.session_id, inspection?.manual_confirmations]);
+
   const statusLabel = inspection?.status ?? (operator ? "待機中" : "未ログイン");
   const inspectionRunning = inspection?.status === SessionStatus.IN_PROGRESS;
   const isInspectionActive = inspectionRunning || inspection?.status === SessionStatus.PAUSED || inspection?.status === SessionStatus.COMPLETED;
@@ -305,6 +339,7 @@ function App() {
       const response = await fetchSession(sessionId);
       setInspection(response);
       setLastFrameAnalysis(null);
+      setCheckRows((rows) => applyManualConfirmations(rows, response.manual_confirmations));
       setWorkerConfirmed(Boolean(response.summary?.worker_confirmed));
     } catch {
       window.localStorage.removeItem("visionlink-session");
@@ -324,8 +359,9 @@ function App() {
       operatorId: operator.operator_id,
       qrText: intake.qrText || undefined,
       orderNo: intake.orderNo || undefined,
-      serialNo: intake.serialNo || undefined,
-      terminalName: intake.terminalName || undefined,
+      serialNo: selectedSerial || undefined,
+      terminalName: selectedTerminal || undefined,
+      boardNo: selectedBoard,
     });
     setInspection(response);
     setLastFrameAnalysis(null);
@@ -372,17 +408,102 @@ function App() {
     }
   }
 
+  async function applyManualConfirmation(row: CheckRow, rowIndex: number) {
+    if (!operator || !inspection) return;
+    const nextConfirmed = !Boolean(row.manual_confirmed);
+    const previousRow = { ...row };
+    const optimisticTimestamp = new Date().toISOString();
+
+    setCheckRows((rows) =>
+      rows.map((item, index) =>
+        index === rowIndex
+          ? {
+              ...item,
+              manual_confirmed: nextConfirmed,
+              manual_confirmed_by: nextConfirmed ? operator.operator_id : null,
+              manual_confirmed_at: nextConfirmed ? optimisticTimestamp : null,
+            }
+          : item
+      )
+    );
+    setWorkerConfirmed(false);
+    if (nextConfirmed) manualConfirmationSeenRef.current = true;
+
+    try {
+      const response = await setManualConfirmation({
+        sessionId: inspection.session_id,
+        operatorId: operator.operator_id,
+        rowIndex,
+        label: row.label,
+        confirmed: nextConfirmed,
+      });
+      setCheckRows((rows) =>
+        rows.map((item, index) =>
+          index === rowIndex
+            ? {
+                ...item,
+                manual_confirmed: response.confirmed,
+                manual_confirmed_by: response.confirmed_by ?? null,
+                manual_confirmed_at: response.confirmed_at ?? null,
+              }
+            : item
+        )
+      );
+      showBanner(nextConfirmed ? `端子番号 ${row.label} を目視確認しました` : `端子番号 ${row.label} の目視確認を解除しました`);
+    } catch (error) {
+      setCheckRows((rows) =>
+        rows.map((item, index) => (index === rowIndex ? previousRow : item))
+      );
+      showBanner(error instanceof Error ? error.message : "目視確認を更新できません", { error: true });
+    }
+  }
+
+  function handleManualConfirmation(row: CheckRow, rowIndex: number) {
+    if (!operator || !inspection) return;
+    const nextConfirmed = !Boolean(row.manual_confirmed);
+    const requiresFirstConfirmation = nextConfirmed && !manualConfirmationSeenRef.current;
+
+    if (requiresFirstConfirmation) {
+      setPendingManualConfirmation({ row: { ...row }, rowIndex });
+      return;
+    }
+
+    void applyManualConfirmation(row, rowIndex);
+  }
+
   async function handleComplete() {
     if (!operator || !inspection) return;
     if (!workerConfirmed) {
       showBanner("完了前に作業者確認が必要です", { error: true });
       return;
     }
-    const response = await completeInspection({ sessionId: inspection.session_id, operatorId: operator.operator_id, workerConfirmed });
+    if (!allRowsCompleted) {
+      showBanner("未完了の端子があります", { error: true });
+      return;
+    }
+
+    const response = await completeInspection({
+      sessionId: inspection.session_id,
+      operatorId: operator.operator_id,
+      workerConfirmed,
+      rows: checkRows.map((row, rowIndex) => ({
+        rowIndex,
+        label: row.label,
+        tubeLExpected: row.tube_l,
+        tubeRExpected: row.tube_r,
+        tubeLStatus: row.tube_l_status ?? "PENDING",
+        labelStatus: row.label_status ?? "PENDING",
+        tubeRStatus: row.tube_r_status ?? "PENDING",
+        completionMethod: row.manual_confirmed ? "MANUAL" : "AUTO",
+        manualConfirmedBy: row.manual_confirmed_by ?? null,
+        manualConfirmedAt: row.manual_confirmed_at ?? null,
+        finalStatus: "OK",
+      })),
+    });
     setInspection(response);
     stopCamera();
     window.localStorage.removeItem("visionlink-session");
-    showBanner("検査を完了しました");
+    showBanner("検査を完了し、端子台履歴を保存しました");
   }
 
   function handleLogout() {
@@ -403,6 +524,32 @@ function App() {
           <span className="banner-text">{banner}</span>
           <button type="button" className="banner-close" aria-label="閉じる" onClick={dismissBanner}>×</button>
         </div>
+      ) : null}
+
+      {pendingManualConfirmation ? createPortal(
+        <div className="settings-modal-backdrop" onClick={() => setPendingManualConfirmation(null)}>
+          <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="settings-modal-header">
+              <h3>目視確認</h3>
+            </div>
+            <p>端子番号 {pendingManualConfirmation.row.label} を目視確認済みにしますか？</p>
+            <p>実物と検査データが一致していることを確認してください。</p>
+            <div className="button-row">
+              <button onClick={() => setPendingManualConfirmation(null)}>キャンセル</button>
+              <button
+                className="primary"
+                onClick={() => {
+                  const pending = pendingManualConfirmation;
+                  setPendingManualConfirmation(null);
+                  void applyManualConfirmation(pending.row, pending.rowIndex);
+                }}
+              >
+                目視OK
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       ) : null}
 
       {!operator ? (
@@ -525,7 +672,14 @@ function App() {
 
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
             {checkDataError ? <div className="check-data-message error">{checkDataError}</div> : null}
-            <CheckDataTable rows={checkRows} highlightKey={highlightKey} focusKey={focusKey} allCompleted={allRowsCompleted} />
+            <CheckDataTable
+              rows={checkRows}
+              highlightKey={highlightKey}
+              focusKey={focusKey}
+              allCompleted={allRowsCompleted}
+              manualEnabled={Boolean(inspection && (inspection.status === SessionStatus.IN_PROGRESS || inspection.status === SessionStatus.PAUSED))}
+              onManualToggle={(row, index) => void handleManualConfirmation(row, index)}
+            />
 
             <div className="button-row wrap">
               <label className="checkbox"><input type="checkbox" checked={workerConfirmed} onChange={(event) => setWorkerConfirmed(event.target.checked)} disabled={!isCheckTableReady || !allRowsCompleted} />{TEXT.workerConfirmed}</label>
@@ -675,17 +829,20 @@ function OverlayCanvas({ detections, ocrResults, mode }: {
   return <canvas ref={canvasRef} className="overlay-canvas" />;
 }
 
-function allStatusLabel(status?: "PENDING" | "OK" | "NG") {
-  if (status === "OK") return "OK";
-  if (status === "NG") return "NG";
+function allStatusLabel(row: CheckRow) {
+  if (row.manual_confirmed) return "目視OK";
+  if (row.all_status === "OK") return "OK";
+  if (row.all_status === "NG") return "NG";
   return "";
 }
 
-function CheckDataTable({ rows, highlightKey, focusKey, allCompleted }: {
+function CheckDataTable({ rows, highlightKey, focusKey, allCompleted, manualEnabled, onManualToggle }: {
   rows: CheckRow[];
   highlightKey?: string | null;
   focusKey?: string | null;
   allCompleted?: boolean;
+  manualEnabled: boolean;
+  onManualToggle: (row: CheckRow, index: number) => void;
 }) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const focusRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -726,7 +883,7 @@ function CheckDataTable({ rows, highlightKey, focusKey, allCompleted }: {
   return (
     <div className="check-table-wrap" ref={wrapRef} onScroll={handleScroll}>
       <table className="check-data-table">
-        <thead><tr><th>L</th><th>Label</th><th>R</th><th>ALL</th></tr></thead>
+        <thead><tr><th>目視</th><th>L</th><th>Label</th><th>R</th><th>ALL</th></tr></thead>
         <tbody>
           {rows.map((row, index) => {
             const key = rowKey(row, index);
@@ -735,14 +892,23 @@ function CheckDataTable({ rows, highlightKey, focusKey, allCompleted }: {
             const isFocus = key === focusKey;
             return (
               <tr key={key} ref={isFocus ? focusRowRef : undefined} className={`${completed ? "check-row-completed" : ""}${isHighlight ? " check-row-flash" : ""}`}>
+                <td className="manual-check-cell">
+                  <input
+                    type="checkbox"
+                    aria-label={`端子番号 ${row.label} を目視確認`}
+                    checked={Boolean(row.manual_confirmed)}
+                    disabled={!manualEnabled || (row.all_status === "OK" && !row.manual_confirmed)}
+                    onChange={() => onManualToggle(row, index)}
+                  />
+                </td>
                 <td className={row.tube_l_status === "OK" ? "check-cell-ok" : ""}>{row.tube_l}</td>
                 <td className={`check-status-mark ${row.label_status === "OK" ? "check-cell-ok" : ""}`}>{row.label}</td>
                 <td className={`check-status-mark ${row.tube_r_status === "OK" ? "check-cell-ok" : ""}`}>{row.tube_r}</td>
-                <td className={`check-status-mark ${row.all_status === "OK" ? "check-cell-ok" : ""}`}>{allStatusLabel(row.all_status)}</td>
+                <td className={`check-status-mark ${isRowCompleted(row) ? "check-cell-ok" : ""}`}>{allStatusLabel(row)}</td>
               </tr>
             );
           })}
-          {!rows.length ? <tr><td colSpan={4} className="empty-state">チェックデータがありません</td></tr> : null}
+          {!rows.length ? <tr><td colSpan={5} className="empty-state">チェックデータがありません</td></tr> : null}
         </tbody>
       </table>
     </div>

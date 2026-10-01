@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from starlette.concurrency import run_in_threadpool
 import logging
 
 from .schemas import (
@@ -12,17 +13,20 @@ from .schemas import (
     FrameAnalyzeResponse,
     InternalDataLookupRequest,
     InternalDataLookupResponse,
+    InspectionHistoryResponse,
     InspectionSessionResponse,
     LoginRequest,
     LoginResponse,
+    ManualConfirmationRequest,
+    ManualConfirmationState,
     ManualEditRequest,
     PerformanceMetrics,
     StartInspectionRequest,
 )
+from .db import load_inspection_history
 from .services.check_data import CheckDataError, list_boards, list_serials, list_terminals, load_table
 from .services.internal_data import lookup_internal_data
 from .services.ai_pipeline import AIModelError, pipeline
-from .services.label_ocr import run_rotated_label_ocr
 from .services.session_manager import manager
 
 router = APIRouter(prefix="/api")
@@ -103,6 +107,14 @@ def get_session(session_id: str) -> InspectionSessionResponse:
         raise HTTPException(status_code=404, detail="session not found") from exc
 
 
+@router.get("/inspection/history/{session_id}", response_model=InspectionHistoryResponse)
+def inspection_history(session_id: str) -> InspectionHistoryResponse:
+    history, rows = load_inspection_history(session_id)
+    if history is None:
+        raise HTTPException(status_code=404, detail="inspection history not found")
+    return InspectionHistoryResponse(**history, rows=rows)
+
+
 @router.post("/inspection/frame-analyze", response_model=FrameAnalyzeResponse)
 async def frame_analyze(
     session_id: str = Form(...),
@@ -116,14 +128,15 @@ async def frame_analyze(
 ) -> FrameAnalyzeResponse:
     try:
         frame_bytes = await frame.read()
-        response = manager.process_frame(
-            session_id=session_id,
-            operator_id=operator_id,
-            frame_bytes=frame_bytes,
-            frame_index=frame_index,
-            yolo_confidence_threshold=yolo_confidence_threshold,
-            ocr_confidence_threshold=ocr_confidence_threshold,
-            rotate_left_tube_ocr=rotate_left_tube_ocr,
+        response = await run_in_threadpool(
+            manager.process_frame,
+            session_id,
+            operator_id,
+            frame_bytes,
+            frame_index,
+            yolo_confidence_threshold,
+            ocr_confidence_threshold,
+            rotate_left_tube_ocr,
         )
         if rotate_label_ocr:
             label_boxes = {
@@ -131,7 +144,8 @@ async def frame_analyze(
                 for det in response.detections
                 if pipeline._is_nmb_detection(det)
             }
-            label_results, label_ocr_ms = run_rotated_label_ocr(
+            label_results, label_ocr_ms = await run_in_threadpool(
+                manager.process_rotated_label_ocr,
                 frame_bytes,
                 response.detections,
                 ocr_confidence_threshold,
@@ -159,6 +173,27 @@ async def frame_analyze(
         raise HTTPException(status_code=500, detail=f"frame analysis failed: {exc}") from exc
 
 
+@router.post("/inspection/session/{session_id}/manual-confirm", response_model=ManualConfirmationState)
+def manual_confirm(
+    session_id: str,
+    request: ManualConfirmationRequest,
+) -> ManualConfirmationState:
+    try:
+        return manager.set_manual_confirmation(session_id, request)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="check data not found") from exc
+    except CheckDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"check data is not accessible: {exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/inspection/session/{session_id}/rows/{line_no}/manual-edit", response_model=InspectionSessionResponse)
 def manual_edit(
     session_id: str,
@@ -182,6 +217,12 @@ def complete(
         return manager.complete_session(session_id, request)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="check data not found") from exc
+    except CheckDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail=f"check data is not accessible: {exc}") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except KeyError as exc:
