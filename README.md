@@ -24,6 +24,8 @@ Frontend は React + TypeScript + Vite、Backend は FastAPI、保存先は SQLi
 VisionLink/
   backend/
     requirements.txt
+    requirements.lock      完全再現用（pip freeze）
+    start-https.ps1
     app/
       api.py
       config.py
@@ -31,11 +33,19 @@ VisionLink/
       main.py
       schemas.py
       services/
+        ai_pipeline.py
+        check_data.py
         internal_data.py
         judgement.py
+        label_ocr.py
         mock_ai.py
         session_manager.py
+        stability.py
         store.py
+    scripts/               HTTPS 証明書生成・起動
+    tests/                 unittest
+  docs/                    仕様・API・アーキテクチャ等
+  tube_label_template.csv  検査テーブル CSV テンプレート
   frontend/
     index.html
     package.json
@@ -47,6 +57,7 @@ VisionLink/
       App.tsx
       api.ts
       camera.ts
+      checkReconcile.ts
       main.tsx
       styles.css
       types.ts
@@ -127,7 +138,7 @@ VisionLink/
 ### Backend
 
 ```powershell
-cd C:\Users\shashimoto\project\workspace_codex\VisionLink\backend
+cd <リポジトリ>\backend
 py -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -137,7 +148,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ### Backend HTTPS 起動
 
 ```powershell
-cd C:\Users\shashimoto\project\workspace_codex\VisionLink\backend
+cd <リポジトリ>\backend
 .venv\Scripts\activate
 py scripts\run_https.py
 ```
@@ -151,7 +162,7 @@ py scripts\run_https.py
 ### Frontend
 
 ```powershell
-cd C:\Users\shashimoto\project\workspace_codex\VisionLink\frontend
+cd <リポジトリ>\frontend
 npm install
 npm run dev -- --host 0.0.0.0
 ```
@@ -176,7 +187,7 @@ npm run dev:https -- --port 5175 --strictPort
 2. PowerShell で以下を実行して証明書を作成します。`192.168.x.x` は PC の LAN IP に置き換えてください。
 
 ```powershell
-cd C:\Users\shashimoto\project\workspace_codex\VisionLink\frontend
+cd <リポジトリ>\frontend
 mkdir certs
 mkcert -install
 mkcert -key-file certs/localhost-key.pem -cert-file certs/localhost.pem localhost 127.0.0.1 192.168.x.x
@@ -195,7 +206,7 @@ npm run dev -- --host 0.0.0.0
 ### HTTPS で iPhone から開く起動コマンド
 
 ```powershell
-cd C:\Users\shashimoto\project\workspace_codex\VisionLink\frontend
+cd <リポジトリ>\frontend
 npm run dev:https
 ```
 
@@ -211,6 +222,18 @@ npm run dev:https
 - `NotReadableError`: 別アプリが占有中
 - `SecurityError`: HTTPS でない、またはブラウザ権限が不足
 - 画面上ではエラー本文に加えて `Code` と補足説明を表示します。
+
+### テストとビルド
+
+```powershell
+# Backend（unittest）
+cd <リポジトリ>\backend
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+
+# Frontend（型チェック込みビルド）
+cd <リポジトリ>\frontend
+npm run build
+```
 
 ## 6. AI モデルの利用状況
 
@@ -258,7 +281,7 @@ AI モデルのファイルは Git 管理対象外です（`.gitignore` の `mod
 ## 8. Backend (Windows / venv)
 
 ```powershell
-cd C:\Users\shashimoto\project\workspace_codex\VisionLink\backend
+cd <リポジトリ>\backend
 py -0p
 py -3 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install --upgrade pip
