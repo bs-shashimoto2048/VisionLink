@@ -152,7 +152,7 @@ class YoloAIPipeline:
             logger.info("paddleocr import success version=%s", self._paddleocr_version)
         except Exception as exc:
             logger.info("paddleocr import failed reason=%s", str(exc))
-            self._ocr_error = "PaddleOCR is not installed or failed to import. Reinstall paddleocr==2.7.3 and paddlepaddle==2.6.2."
+            self._ocr_error = "PaddleOCR is not installed or failed to import. Reinstall per requirements: pip install -r backend/requirements.txt"
             raise AIModelError(self._ocr_error) from exc
         try:
             paddle = __import__("paddle")
@@ -164,7 +164,7 @@ class YoloAIPipeline:
             )
         except Exception as exc:
             logger.info("paddlepaddle import failed reason=%s", str(exc))
-            self._ocr_error = "paddlepaddle is not installed. Run: python -m pip install paddlepaddle"
+            self._ocr_error = "paddlepaddle is not installed. Run: pip install -r backend/requirements.txt"
             raise AIModelError(self._ocr_error) from exc
         if not self._ocr_rec_model_dir.exists():
             self._ocr_error = f"PaddleOCR rec model not found: {self._ocr_rec_model_dir}"
