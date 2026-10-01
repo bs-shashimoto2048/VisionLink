@@ -40,6 +40,9 @@ model/**/*.pdiparams.info
 # PaddleOCR モデル一式（ローカル実体のみ・リポジトリには含めない）
 model/paddleocr/
 
+# Local training outputs (Ultralytics)
+runs/
+
 # Local/private inspection data
 check_data/product/
 
