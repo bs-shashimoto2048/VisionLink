@@ -135,6 +135,21 @@ VisionLink/
 
 ## 5. Windows 環境での起動手順
 
+### 開発・検証済み環境
+
+以下の環境で動作を確認しています。これは検証に使った環境の記録であり、対応バージョンやサポート対象を示すものではありません。他のバージョンでの動作は未確認です。
+
+| 項目 | バージョン |
+|---|---|
+| Backend Python（`backend/.venv`） | 3.12.8 |
+| Node | v24.13.0 |
+| npm | 11.6.2 |
+| TypeScript | 5.9.3 |
+| Vite | 5.4.21 |
+
+- Backend は `backend/.venv` の Python 3.12.8 で検証しています。
+- 依存パッケージの版は `backend/requirements.txt` / `frontend/package-lock.json` を参照してください。
+
 ### Backend
 
 ```powershell
