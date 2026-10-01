@@ -156,6 +156,15 @@ npm install
 npm run dev -- --host 0.0.0.0
 ```
 
+### Backend のポートを変える場合
+
+開発用 proxy（`/api`）の宛先は、既定で `http://localhost:8000` です。Backend を別のポートで起動している場合は、環境変数 `BACKEND_PORT` で指定します。
+
+```powershell
+$env:BACKEND_PORT=8001
+npm run dev:https -- --port 5175 --strictPort
+```
+
 ### 利用上の注意
 
 - スマートフォンのカメラ利用は HTTPS または `localhost` のような secure context が必要です。
