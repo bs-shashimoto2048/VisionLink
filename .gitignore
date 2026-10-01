@@ -12,6 +12,9 @@ frontend/dist/
 frontend/.vite/
 frontend/*.tsbuildinfo
 frontend/*.timestamp-*.mjs
+# vite.config.ts is the single source; tsc must not emit these next to it
+frontend/vite.config.js
+frontend/vite.config.d.ts
 
 # Local databases and runtime logs
 backend/data/
