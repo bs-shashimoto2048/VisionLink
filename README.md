@@ -213,6 +213,18 @@ PoC v1 時点で、YOLO・OCR とも**実モデルを使用**しています（`
   - PaddleOCR 2.x 環境では `TextRecognizer` + `model/paddleocr/en_PP-OCRv3_rec_infer`（`inference.pdmodel` / `inference.pdiparams`）経路。
   - フロントの消し込みは `frame-analyze` の `ocr_results`（`source="paddleocr"`）を使用します。
 
+### モデルの配置
+
+AI モデルのファイルは Git 管理対象外です（`.gitignore` の `model/**/*.pt` と `model/paddleocr/`）。次のパスに配置してください。
+
+- **YOLO（物体検出）**: `model/yolo/TrmRead_yolo26s_20260401.pt`
+- **PaddleOCR 3.x（現行標準）**: `model/paddleocr/en_PP-OCRv5_mobile_rec/`
+- **PaddleOCR 2.x（旧環境用）**: `model/paddleocr/en_PP-OCRv3_rec_infer/en_PP-OCRv3_rec_infer/`（`inference.pdmodel` / `inference.pdiparams` が必要）
+
+現在の `backend/requirements.txt` は `paddleocr==3.5.0` / `paddlepaddle==3.0.0` のため、3.x 経路を現行標準として扱います。2.x 経路は旧環境との互換用です。
+
+モデル未配置・ロード失敗時の挙動は、下記の「モック / フォールバックの発動条件」を参照してください。
+
 ### モック / フォールバックの発動条件
 
 実モデルが使えない場合に限り `mock_ai` などへフォールバックします。
