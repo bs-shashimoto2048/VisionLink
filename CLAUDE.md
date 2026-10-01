@@ -12,7 +12,7 @@
 
 ### Backend（`backend/`）
 - Python 仮想環境: `backend/.venv`（既存）
-- 依存: `backend/requirements.txt`（fastapi, uvicorn, ultralytics, paddleocr==2.7.3, paddlepaddle==2.6.2, pillow, numpy<2 ほか）
+- 依存: `backend/requirements.txt`（fastapi, uvicorn, ultralytics, paddleocr==3.5.0, paddlepaddle==3.0.0, pillow, numpy==2.3.5 ほか。`requirements.lock` は完全再現用）
 - 起動: `.venv\Scripts\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8000`
 - HTTPS 起動: `.venv\Scripts\python.exe scripts\run_https.py`
 - 構文チェック: `.venv\Scripts\python.exe -m py_compile backend/app/services/ai_pipeline.py backend/app/services/session_manager.py backend/app/api.py`
@@ -88,7 +88,7 @@ VisionLink/
 - Frontend/Backend 分離 → 将来クラウド AI サーバーへ差し替え可能。
 - 画像フレームは永続保存しない（一時利用のみ）。
 - 検査完了時は**作業者確認（worker_confirmed）必須**。
-- YOLO モデル未配置時、`frame-analyze` は 503 を返す（`session_manager` 側でデモ検出を挿入するフォールバックあり）。
+- YOLO モデル未配置時、YOLO 側の `AIModelError` は `session_manager.py` で捕捉され、`frame-analyze` はデモ検出（`ocr-demo-region`）を挿入して継続する（503 にはならない）。OCR 側は `pipeline.ocr_results()` が失敗時に `mock_ai` へフォールバックする。`api.py` は捕捉されなかった `AIModelError` を 503 に変換するため、フォールバックされない経路（例: ラベル回転 OCR で Pillow 未導入）では 503 になり得る。
 
 ---
 
