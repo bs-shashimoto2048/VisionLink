@@ -1,3 +1,4 @@
+var _a;
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -23,7 +24,7 @@ export default defineConfig({
         https: readHttpsOptions(),
         proxy: {
             "/api": {
-                target: "http://localhost:8000",
+                target: "http://localhost:".concat((_a = process.env.BACKEND_PORT) !== null && _a !== void 0 ? _a : "8000"),
                 changeOrigin: true
             }
         }
