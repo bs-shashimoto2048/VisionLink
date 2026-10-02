@@ -170,7 +170,7 @@ py scripts\run_https.py
 
 - 初回実行時に `backend/certs/backend-key.pem` と `backend/certs/backend.pem` を自動生成します。
 - 証明書には `localhost`、`127.0.0.1`、PC の LAN IP が入ります。
-- iPhone からバックエンドに直接アクセスする場合は `https://<PCのLAN-IP>:8000` を使えます。
+- iPhone などから `https://<PCのLAN-IP>:8000` にアクセスすると、Backend API の直接疎通確認ができます（フロントエンドの通常の接続方式ではありません。次節「フロントエンドと Backend の接続方式」を参照）。
 - フロントエンドを Vite proxy 経由で使う場合は、バックエンドを HTTP のままでも動きます。
 - `backend/start-https.ps1` でも同じ HTTPS 起動を実行できます。
 
@@ -181,6 +181,31 @@ cd <リポジトリ>\frontend
 npm install
 npm run dev -- --host 0.0.0.0
 ```
+
+### フロントエンドと Backend の接続方式
+
+通常の推奨開発運用は **Frontend → Vite proxy → Backend** です。
+
+```text
+通常（推奨）
+  ブラウザ / iPhone
+  https://<PC>:5175   （Frontend）
+        |  /api/...（相対URL）
+        v
+  Vite proxy
+        |
+        v
+  Backend  http://localhost:8001
+
+直接利用（VITE_API_BASE_URL を指定した場合のみ）
+  ブラウザ（Frontend の origin）
+        |  cross-origin
+        v
+  Backend  https://<PCのLAN-IP>:8000
+```
+
+- フロントエンド（`frontend/src/api.ts`）は `VITE_API_BASE_URL` が未設定のとき空文字を基底にし、`/api/...` を相対URLで呼びます。ブラウザから見ると Frontend と同一 origin なので、通常運用では Backend の CORS 設定を意識する必要はありません。
+- `VITE_API_BASE_URL` を指定した場合だけ、ブラウザが Backend を直接呼びます。この構成だけが CORS の対象です。現在の Backend は Origin を `:5173` のものに限定しているため、直接利用する場合は Frontend の Origin が許可されている必要があります（設定変更の方法はここでは扱いません）。
 
 ### Backend のポートを変える場合
 
