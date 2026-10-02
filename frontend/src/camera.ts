@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { computeCoverCrop } from "./coverCrop";
 import type { CameraInfo, CameraState } from "./types";
 
 type CameraFacing = "environment" | "user";
@@ -95,6 +96,29 @@ class CameraService {
 }
 
 export const cameraService = new CameraService();
+
+/**
+ * Draws the part of the video that is actually visible (`object-fit: cover` inside the video element's box)
+ * and returns it as JPEG. The AI therefore sees exactly what the worker sees, and normalized detection
+ * coordinates map 1:1 onto the on-screen video box (WYSIWYG).
+ */
+export function captureVisibleFrame(video: HTMLVideoElement): Promise<Blob | null> {
+  const crop = computeCoverCrop(video.videoWidth, video.videoHeight, video.clientWidth, video.clientHeight);
+  if (crop.sw <= 0 || crop.sh <= 0) {
+    return Promise.resolve(null);
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = crop.sw;
+  canvas.height = crop.sh;
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return Promise.resolve(null);
+  }
+  context.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, crop.sw, crop.sh);
+  return new Promise<Blob | null>((resolve) => {
+    canvas.toBlob(resolve, "image/jpeg", 0.72);
+  });
+}
 
 export function useCamera() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -235,22 +259,7 @@ export function useCamera() {
     if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
       return null;
     }
-    const width = video.videoWidth;
-    const height = video.videoHeight;
-    if (!width || !height) {
-      return null;
-    }
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const context = canvas.getContext("2d");
-    if (!context) {
-      return null;
-    }
-    context.drawImage(video, 0, 0, width, height);
-    return await new Promise<Blob | null>((resolve) => {
-      canvas.toBlob(resolve, "image/jpeg", 0.72);
-    });
+    return await captureVisibleFrame(video);
   }, []);
 
   useEffect(() => {
@@ -324,22 +333,7 @@ export function useFrameSampler({
         if (!video || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
           return;
         }
-        const width = video.videoWidth;
-        const height = video.videoHeight;
-        if (!width || !height) {
-          return;
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const context = canvas.getContext("2d");
-        if (!context) {
-          return;
-        }
-        context.drawImage(video, 0, 0, width, height);
-        const blob = await new Promise<Blob | null>((resolve) => {
-          canvas.toBlob(resolve, "image/jpeg", 0.72);
-        });
+        const blob = await captureVisibleFrame(video);
         if (!blob) {
           return;
         }
