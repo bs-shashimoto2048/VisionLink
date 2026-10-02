@@ -23,6 +23,7 @@ import { useCamera, useFrameSampler } from "./camera";
 import { CheckStatus, SessionStatus } from "./types";
 import type { CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
 import { reconcileCheckRows } from "./checkReconcile";
+import { INSPECTION_CONTROL_LABEL, inspectionControlMode } from "./inspectionControl";
 
 const OVERLAY_MODES = {
   inference_result: "表示: 推論結果",
@@ -302,6 +303,7 @@ function App() {
 
   const statusLabel = inspection?.status ?? (operator ? "待機中" : "未ログイン");
   const inspectionRunning = inspection?.status === SessionStatus.IN_PROGRESS;
+  const inspectionMode = inspectionControlMode(inspection?.status);
   const isInspectionActive = inspectionRunning || inspection?.status === SessionStatus.PAUSED || inspection?.status === SessionStatus.COMPLETED;
   const overlayOcrResults = useMemo(() => {
     const latest = lastFrameAnalysis?.ocr_results ?? [];
@@ -400,6 +402,13 @@ function App() {
     const response = await pauseInspection({ sessionId: inspection.session_id, employeeId: operator.operator_id });
     setInspection(response);
     showBanner("検査を停止しました");
+  }
+
+  // One button: IN_PROGRESS -> pause, PAUSED -> resume the same session, otherwise start a new session.
+  async function handleInspectionButton() {
+    if (inspectionMode === "stop") return handleStopInspection();
+    if (inspectionMode === "resume") return handleResumeSession();
+    return handleStartInspection();
   }
 
   async function handleResumeSession() {
@@ -631,11 +640,11 @@ function App() {
                     title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
                   >{cameraState.running ? "カメラ停止" : "カメラ開始"}</button>
                   <button
-                    className={inspectionRunning ? "danger" : "primary"}
-                    onClick={() => void (inspectionRunning ? handleStopInspection() : handleStartInspection())}
-                    disabled={!isCheckTableReady && !inspectionRunning}
+                    className={inspectionMode === "stop" ? "danger" : "primary"}
+                    onClick={() => void handleInspectionButton()}
+                    disabled={!isCheckTableReady && inspectionMode !== "stop"}
                     title={!isCheckTableReady ? "検査テーブルを選択してから開始してください" : undefined}
-                  >{inspectionRunning ? "検査停止" : "検査開始"}</button>
+                  >{INSPECTION_CONTROL_LABEL[inspectionMode]}</button>
                 </div>
               </div>
             </div>

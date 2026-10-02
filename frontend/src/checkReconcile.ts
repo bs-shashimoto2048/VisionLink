@@ -8,6 +8,14 @@ export function normalizeCheckText(value: unknown): string {
     .replace(/O/g, "0");
 }
 
+// Tube-only comparison key: additionally treats digit "1", letter "l"/"L" and capital "I" as the same
+// character (normalizeCheckText() upper-cases first, so lower-case "l" is already "L" here).
+// "|" is intentionally NOT folded. Used only when matching left/right tube text; label/nmb matching and
+// detection classification keep using normalizeCheckText(). Displayed / raw OCR text is never rewritten.
+export function normalizeTubeCheckText(value: unknown): string {
+  return normalizeCheckText(value).replace(/[LI]/g, "1");
+}
+
 function getOcrText(result: OCRResult | undefined): string {
   return normalizeCheckText(result?.text ?? result?.ocr_text ?? result?.value ?? result?.label ?? "");
 }
@@ -119,7 +127,8 @@ function findMatchingTube(
     })
     .sort((a, b) => Math.abs(centerX(a.box) - labelX) - Math.abs(centerX(b.box) - labelX));
 
-  return candidates.find((candidate) => candidate.text === expectedText);
+  const expectedKey = normalizeTubeCheckText(expectedText);
+  return candidates.find((candidate) => normalizeTubeCheckText(candidate.text) === expectedKey);
 }
 
 export function reconcileCheckRows(args: {
