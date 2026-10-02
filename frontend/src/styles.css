@@ -702,10 +702,12 @@ button:disabled {
     min-height: 38px;
   }
 
-  /* スマホ: 幅いっぱい・4:3(640:480)固定。高さは幅から算出し最初から確保（カメラ起動で揺れない）。 */
+  /* スマホ: 幅いっぱい・16:9固定（カメラ取得 ideal 1280x720 に合わせ、object-fit: cover での左右切り取りと
+     オーバーレイのずれを避ける）。高さは幅から算出し最初から確保（カメラ起動で揺れない）。
+     vh/dvh・px の固定高は使わない（Safari のアドレスバー伸縮で揺れるため）。 */
   .video-stage {
     width: 100%;
-    aspect-ratio: 4 / 3;
+    aspect-ratio: 16 / 9;
     min-height: 0;
     max-height: none;
   }
