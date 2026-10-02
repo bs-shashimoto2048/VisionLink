@@ -6,7 +6,8 @@ pydantic==2.13.4
 cryptography==48.0.0
 setuptools==81.0.0
 
-# AI stack（バージョン感度が高いので厳密ピン）
+# AI stack - version-sensitive, keep strictly pinned
+# (comments are ASCII only so that pip can read this file on Windows cp932)
 numpy==2.3.5
 ultralytics==8.4.47
 pillow==12.2.0
