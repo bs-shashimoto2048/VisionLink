@@ -410,6 +410,35 @@ button:disabled {
   aspect-ratio: 4 / 3;
 }
 
+/* タッチ端末（スマホ・タブレット）は画面幅やデスクトップ表示かどうかに関係なく 16:9 に固定する。
+   max-width: 600px だけに頼ると、デスクトップ用表示・横向き・601px 以上で 4:3 になり、AI へ送る画像の形が揺れる。
+   PC（マウス）は従来どおり 4:3。 */
+@media (pointer: coarse) {
+  .video-stage {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    min-height: 0;
+    max-height: none;
+  }
+}
+
+/* ?diag=1 のときだけ表示する診断パネル（レイアウトに影響しない固定オーバーレイ） */
+.diag-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  margin: 0;
+  padding: 4px 6px;
+  font: 10px/1.3 ui-monospace, Menlo, Consolas, monospace;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.72);
+  white-space: pre-wrap;
+  word-break: break-all;
+  pointer-events: none;
+}
+
 .camera-video,
 .overlay-canvas {
   position: absolute;

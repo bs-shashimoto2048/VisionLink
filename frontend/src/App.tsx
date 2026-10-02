@@ -20,6 +20,7 @@ import {
   startInspection,
 } from "./api";
 import { useCamera, useFrameSampler } from "./camera";
+import { DIAG_ENABLED, DiagPanel } from "./DiagPanel";
 import { CheckStatus, SessionStatus } from "./types";
 import type { CheckRow, CheckTableResponse, InspectionSessionResponse, InternalDataLookupResponse, LoginResponse, OCRResult } from "./types";
 import { reconcileCheckRows } from "./checkReconcile";
@@ -556,6 +557,7 @@ function App() {
 
   return (
     <div className="app-shell">
+      {DIAG_ENABLED ? <DiagPanel /> : null}
       {banner ? (
         <div className="banner">
           <span className="banner-text">{banner}</span>

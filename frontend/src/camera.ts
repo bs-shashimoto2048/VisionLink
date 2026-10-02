@@ -102,6 +102,9 @@ export const cameraService = new CameraService();
  * and returns it as JPEG. The AI therefore sees exactly what the worker sees, and normalized detection
  * coordinates map 1:1 onto the on-screen video box (WYSIWYG).
  */
+/** Size of the last frame handed to the AI (read by the `?diag=1` panel). */
+export const captureStats = { width: 0, height: 0 };
+
 export function captureVisibleFrame(video: HTMLVideoElement): Promise<Blob | null> {
   const crop = computeCoverCrop(video.videoWidth, video.videoHeight, video.clientWidth, video.clientHeight);
   if (crop.sw <= 0 || crop.sh <= 0) {
@@ -115,6 +118,8 @@ export function captureVisibleFrame(video: HTMLVideoElement): Promise<Blob | nul
     return Promise.resolve(null);
   }
   context.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, crop.sw, crop.sh);
+  captureStats.width = crop.sw;
+  captureStats.height = crop.sh;
   return new Promise<Blob | null>((resolve) => {
     canvas.toBlob(resolve, "image/jpeg", 0.72);
   });
