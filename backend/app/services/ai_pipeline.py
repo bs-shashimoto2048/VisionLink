@@ -15,6 +15,7 @@ os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
 
 from ..schemas import DetectionBox, InspectionRowTemplate, OCRResult, PerformanceMetrics
 from .mock_ai import run_ocr, run_ocr_results
+from .yolo_diag import format_diag, frame_quality, summarize_boxes
 
 try:
     from PIL import Image
@@ -115,6 +116,8 @@ class YoloAIPipeline:
         self._ocr_preprocess_config = DEFAULT_OCR_PREPROCESS_CONFIG
         self._ocr_preprocess_enabled = os.environ.get("OCR_PREPROCESS_ENABLED", "false").lower() == "true"
         self._ocr_debug_log_enabled = os.environ.get("OCR_DEBUG_LOG_ENABLED", "false").lower() == "true"
+        # Opt-in diagnostics: pre-threshold box counts / confidences and frame quality (default off, no behaviour change).
+        self._yolo_debug_log_enabled = os.environ.get("YOLO_DEBUG_LOG_ENABLED", "false").lower() == "true"
 
     def _fallback_signature(self, frame_bytes: bytes, frame_index: int) -> str:
         return sha1(frame_bytes + str(frame_index).encode("utf-8")).hexdigest()[:16]
@@ -241,11 +244,13 @@ class YoloAIPipeline:
         width = float(result.orig_shape[1])
         height = float(result.orig_shape[0])
         boxes = result.boxes
+        raw_boxes: list[tuple[str, float]] = []  # every box the model returned, before the confidence threshold
         if boxes is not None:
             for b in boxes:
                 xyxy = b.xyxy[0].tolist()
                 conf = float(b.conf[0])
                 cls_id = int(b.cls[0])
+                raw_boxes.append((str(names.get(cls_id, cls_id)), conf))
                 x1, y1, x2, y2 = xyxy
                 nx = max(0.0, min(1.0, x1 / width))
                 ny = max(0.0, min(1.0, y1 / height))
@@ -266,12 +271,24 @@ class YoloAIPipeline:
         if detections:
             top = detections[0]
             signature = f"{top.label}:{round(top.x,3)}:{round(top.y,3)}:{round(top.width,3)}:{round(top.height,3)}"
+        if self._yolo_debug_log_enabled:
+            self._log_yolo_diag(image, frame_index, raw_boxes, confidence_threshold)
         elapsed = int((perf_counter() - start) * 1000)
         return DetectionResult(
             detections=detections,
             performance=PerformanceMetrics(yolo_ms=elapsed, ocr_ms=0, total_ms=elapsed),
             signature=signature,
         )
+
+    def _log_yolo_diag(self, image: Any, frame_index: int, raw_boxes: list[tuple[str, float]], threshold: float) -> None:
+        try:
+            width, height = image.size
+            small_w = 320
+            small = image.convert("L").resize((small_w, max(3, int(small_w * height / max(1, width)))))
+            quality = frame_quality(__import__("numpy").asarray(small))
+            logger.info(format_diag(frame_index, int(width), int(height), summarize_boxes(raw_boxes, threshold), quality))
+        except Exception:  # diagnostics must never affect detection
+            logger.debug("YOLO diag failed", exc_info=True)
 
     def ocr_detections(
         self,
