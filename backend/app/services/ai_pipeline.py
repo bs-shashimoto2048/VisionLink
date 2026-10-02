@@ -38,6 +38,12 @@ ROTATE_TUBE_KEYWORDS = ("tube", "tube_l", "tube_r", "left_tube", "right_tube", "
 ROTATE_EXCLUDE_KEYWORDS = ("nmb", "label", "number", "terminal", "term", "no", "line")
 
 # nmb 系（中央の番号, 1〜999）は必ず数値。OCR の見間違いを数字へ寄せ、残った非数字は除去する。
+# 端子番号 1 は単独の "0" / "O" と誤読されやすく、その信頼度は 0.6 を下回ることが多い。単独の "0" は端子番号として
+# 存在しないため、フロントは「"2" より上にある "0" だけを "1" として照合」する（checkReconcile.resolveLabelTextByPosition）。
+# その構造条件でしか使われない前提で、nmb の確定後が "0" の読み取りに限り、この下限まで通す（全体のしきい値は変えない）。
+# 根拠: 実機ログの疑似正解で、"2" の上の低信頼度 "0" は 42/42 が真の 1（Issue: Evaluate terminal-number OCR confidence threshold）。
+NMB_LONE_ZERO_MIN_SCORE = 0.30
+
 NMB_DIGIT_MAP = {
     "I": "1", "l": "1", "|": "1",
     "O": "0", "o": "0",
@@ -502,10 +508,16 @@ class YoloAIPipeline:
                 )
             is_nmb = self._is_nmb_detection(det)
             for text, score in self._extract_paddle_text_scores(paddle_output):
-                if not text or score < ocr_confidence_threshold:
+                if not text:
                     continue
                 # nmb 系は数字のみで確定（tube は英数字混在のため対象外）
                 out_text = self._confine_nmb_text(text) if is_nmb else text
+                # nmb の確定後が単独の "0" の読み取りだけ、全体のしきい値未満でも NMB_LONE_ZERO_MIN_SCORE まで通す
+                low_confidence_zero = (
+                    is_nmb and out_text == "0" and NMB_LONE_ZERO_MIN_SCORE <= score < ocr_confidence_threshold
+                )
+                if score < ocr_confidence_threshold and not low_confidence_zero:
+                    continue
                 if not out_text:
                     continue
                 results.append(
