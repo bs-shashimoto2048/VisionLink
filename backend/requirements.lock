@@ -1,6 +1,11 @@
-# 完全再現用ロックファイル。通常は requirements.txt を使用する。
-# 完全に同一環境を再現したい場合のみ: pip install -r requirements.lock
-# （既存 .venv の pip freeze 全行。実環境の忠実な記録のため opencv-python / opencv-contrib-python が両方含まれ得る）
+# Lock file for reproducing the full environment. Normally use requirements.txt.
+# Only when an identical environment is needed: pip install -r requirements.lock
+# This file records the existing environment (pip freeze output) as observed.
+# Both opencv-python and opencv-contrib-python are currently present; they share
+# the cv2 namespace, so which files end up in cv2/ depends on install order.
+# This file intentionally preserves the observed environment. Do not remove one
+# of them without validating PaddleX / Ultralytics dependency resolution.
+# Comments are ASCII only so that pip can read this file on Windows (cp932).
 aistudio-sdk==0.3.8
 annotated-doc==0.0.4
 annotated-types==0.7.0
