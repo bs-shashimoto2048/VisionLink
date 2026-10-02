@@ -10,6 +10,7 @@ from .schemas import (
     CheckDataTableResponse,
     CheckDataTerminalsResponse,
     CompleteRequest,
+    CompletedTerminalsResponse,
     FrameAnalyzeResponse,
     InternalDataLookupRequest,
     InternalDataLookupResponse,
@@ -23,7 +24,7 @@ from .schemas import (
     PerformanceMetrics,
     StartInspectionRequest,
 )
-from .db import load_inspection_history
+from .db import load_completed_terminals, load_inspection_history
 from .services.check_data import CheckDataError, list_boards, list_serials, list_terminals, load_table
 from .services.internal_data import lookup_internal_data
 from .services.ai_pipeline import AIModelError, pipeline
@@ -105,6 +106,16 @@ def get_session(session_id: str) -> InspectionSessionResponse:
         return manager.get_session(session_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
+
+
+@router.get("/inspection/completed-terminals", response_model=CompletedTerminalsResponse)
+def inspection_completed_terminals(serial_no: str, board_no: str) -> CompletedTerminalsResponse:
+    # Read-only: a terminal is "completed" when inspection_history has at least one record for it.
+    return CompletedTerminalsResponse(
+        serial_no=serial_no,
+        board_no=board_no,
+        terminals=load_completed_terminals(serial_no, board_no),
+    )
 
 
 @router.get("/inspection/history/{session_id}", response_model=InspectionHistoryResponse)

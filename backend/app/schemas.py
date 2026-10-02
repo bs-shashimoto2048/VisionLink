@@ -73,6 +73,12 @@ class CheckDataTerminalsResponse(BaseModel):
     terminals: list[str] = Field(default_factory=list)
 
 
+class CompletedTerminalsResponse(BaseModel):
+    serial_no: str
+    board_no: str
+    terminals: list[str] = Field(default_factory=list)
+
+
 class CheckDataRow(BaseModel):
     tube_l: str
     label: str

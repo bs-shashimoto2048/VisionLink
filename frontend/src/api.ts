@@ -102,6 +102,12 @@ export async function fetchCheckTerminals(serial: string, board: string) {
   );
 }
 
+export async function fetchCompletedTerminals(serial: string, board: string) {
+  return requestJson<{ serial_no: string; board_no: string; terminals: string[] }>(
+    `/api/inspection/completed-terminals?serial_no=${encodeURIComponent(serial)}&board_no=${encodeURIComponent(board)}`
+  );
+}
+
 export async function fetchCheckTable(serial: string, board: string, terminal: string) {
   return requestJson<CheckTableResponse>(
     `/api/check-data/table?serial=${encodeURIComponent(serial)}&board=${encodeURIComponent(board)}&terminal=${encodeURIComponent(terminal)}`

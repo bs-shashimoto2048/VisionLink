@@ -401,6 +401,20 @@ def persist_inspection_history(history: dict, rows: Iterable[dict]) -> None:
             )
 
 
+def load_completed_terminals(serial_no: str, board_no: str) -> list[str]:
+    """Terminal names that have at least one completed inspection history (read-only)."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT DISTINCT terminal_name FROM inspection_history
+            WHERE serial_no = ? AND board_no = ?
+            ORDER BY terminal_name ASC
+            """,
+            (serial_no, board_no),
+        ).fetchall()
+        return [row["terminal_name"] for row in rows]
+
+
 def load_inspection_history(session_id: str) -> tuple[dict | None, list[dict]]:
     with get_connection() as conn:
         history = conn.execute(

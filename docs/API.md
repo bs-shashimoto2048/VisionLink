@@ -233,6 +233,22 @@ Responseには以下を含みます。
 - 各端子の `completion_method: AUTO | MANUAL`
 - MANUALの場合の目視確認者 / 目視確認日時
 
+### `GET /api/inspection/completed-terminals`
+
+指定した製番・盤番号について、完了履歴が1件でも存在する端子台名の一覧を返します（読み取り専用）。端子台選択リストの「✓」表示に使います。
+
+| Query | 型 | 内容 |
+|---|---|---|
+| `serial_no` | string | 製番（必須） |
+| `board_no` | string | 盤番号（必須） |
+
+```json
+{ "serial_no": "A1AA0001", "board_no": "1", "terminals": ["TB1FR", "TB2FL"] }
+```
+
+- `inspection_history` を参照します。同じ端子台を複数回完了していても1件だけ返します。
+- `terminals` は端子台名の昇順です。履歴が無い場合は空配列です。
+
 ## 7. フレーム解析
 
 ### `POST /api/inspection/frame-analyze`
