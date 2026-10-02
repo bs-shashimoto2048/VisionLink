@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { buildTerminalOptions } from "./terminalOptions";
 import {
   ApiError,
   abortInspection,
@@ -9,6 +10,7 @@ import {
   fetchCheckSerials,
   fetchCheckTable,
   fetchCheckTerminals,
+  fetchCompletedTerminals,
   fetchSession,
   login,
   lookupInternalData,
@@ -117,6 +119,7 @@ function App() {
   const [serials, setSerials] = useState<string[]>([]);
   const [boards, setBoards] = useState<string[]>([]);
   const [terminals, setTerminals] = useState<string[]>([]);
+  const [completedTerminals, setCompletedTerminals] = useState<string[]>([]);
   const [selectedSerial, setSelectedSerial] = useState("");
   const [selectedBoard, setSelectedBoard] = useState("");
   const [selectedTerminal, setSelectedTerminal] = useState("");
@@ -170,6 +173,7 @@ function App() {
   useEffect(() => {
     setBoards([]);
     setTerminals([]);
+    setCompletedTerminals([]);
     setSelectedBoard("");
     setSelectedTerminal("");
     setCheckTable(null);
@@ -188,6 +192,7 @@ function App() {
 
   useEffect(() => {
     setTerminals([]);
+    setCompletedTerminals([]);
     setSelectedTerminal("");
     setCheckTable(null);
     setCheckRows([]);
@@ -201,6 +206,27 @@ function App() {
       .then((response) => setTerminals(response.terminals))
       .catch((error) => setCheckDataError(error instanceof Error ? error.message : "端子台を読み込めません"))
       .finally(() => setCheckDataLoading(null));
+  }, [selectedSerial, selectedBoard]);
+
+  // Completed-terminal marks are auxiliary: a failure here must never block terminal selection or inspection.
+  function loadCompletedTerminals(serial: string, board: string, isCurrent: () => boolean = () => true) {
+    fetchCompletedTerminals(serial, board)
+      .then((response) => {
+        if (isCurrent()) setCompletedTerminals(response.terminals);
+      })
+      .catch((error) => {
+        console.warn("[VisionLink] completed terminals unavailable", error);
+        if (isCurrent()) setCompletedTerminals([]);
+      });
+  }
+
+  useEffect(() => {
+    if (!selectedSerial || !selectedBoard) return;
+    let current = true;
+    loadCompletedTerminals(selectedSerial, selectedBoard, () => current);
+    return () => {
+      current = false;
+    };
   }, [selectedSerial, selectedBoard]);
 
   useEffect(() => {
@@ -503,6 +529,8 @@ function App() {
     setInspection(response);
     stopCamera();
     window.localStorage.removeItem("visionlink-session");
+    // The history API is the source of truth for the completed mark.
+    if (selectedSerial && selectedBoard) loadCompletedTerminals(selectedSerial, selectedBoard);
     showBanner("検査を完了し、端子台履歴を保存しました");
   }
 
@@ -667,7 +695,7 @@ function App() {
             <div className="check-data-selectors">
               <select value={selectedSerial} onChange={(event) => setSelectedSerial(event.target.value)}><option value="">製番</option>{serials.map((serial) => <option key={serial} value={serial}>{serial}</option>)}</select>
               <select value={selectedBoard} onChange={(event) => setSelectedBoard(event.target.value)} disabled={!selectedSerial}><option value="">盤番号</option>{boards.map((board) => <option key={board} value={board}>{board}</option>)}</select>
-              <select value={selectedTerminal} onChange={(event) => setSelectedTerminal(event.target.value)} disabled={!selectedBoard}><option value="">端子台</option>{terminals.map((terminal) => <option key={terminal} value={terminal}>{terminal}</option>)}</select>
+              <select value={selectedTerminal} onChange={(event) => setSelectedTerminal(event.target.value)} disabled={!selectedBoard}><option value="">端子台</option>{buildTerminalOptions(terminals, completedTerminals).map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
             </div>
 
             {checkDataLoading ? <div className="check-data-message">{checkDataLoading}</div> : null}
