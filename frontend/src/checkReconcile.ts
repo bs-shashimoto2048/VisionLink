@@ -33,6 +33,13 @@ function getBox(result: OCRResult | undefined): Box | null {
 }
 
 function centerX(box: Box): number { return box.x + box.width / 2; }
+
+// The terminal-number column sits on the center guide. A (normalized) box that straddles the guide line is a
+// terminal number (label / nmb) no matter how the detector classified it; the position takes priority.
+// Intersection, not center: left <= guideX <= right.
+export function isBoxOnGuide(box: Box, guideX: number): boolean {
+  return box.x <= guideX && guideX <= box.x + box.width;
+}
 function centerY(box: Box): number { return box.y + box.height / 2; }
 
 function detectionText(value: { label?: string | null; class_name?: string | null; role?: string | null; name?: string | null }): string {
@@ -136,10 +143,11 @@ function findMatchingTube(
 // it sits above a "2" candidate (centerY(0) < centerY(2)), the table has rows "1" and "2", and no proper "1"
 // was read in the same frame. Only the label comparison key is changed: the raw OCR result (and whatever is
 // displayed / logged) keeps "0", tube OCR is never touched, and "10" / "20" etc. are never altered.
-export function resolveLabelTextByPosition(items: OCRItem[], rowLabels: Set<string>): OCRItem[] {
+export function resolveLabelTextByPosition(items: OCRItem[], rowLabels: Set<string>, guideX = 0.5): OCRItem[] {
   if (!rowLabels.has("1") || !rowLabels.has("2")) return items;
   if (items.some((item) => item.text === "1")) return items; // a proper "1" wins; no double matching
-  const isLabelItem = (item: OCRItem) => isLabelDetection(item.result);
+  // label-class detections, or any box on the center guide (position beats the detector class)
+  const isLabelItem = (item: OCRItem) => isLabelDetection(item.result) || isBoxOnGuide(item.box, guideX);
   const twos = items.filter((item) => item.text === "2" && isLabelItem(item));
   const zeros = items.filter((item) => item.text === "0" && isLabelItem(item));
   if (!twos.length || !zeros.length) return items;
@@ -165,7 +173,7 @@ export function reconcileCheckRows(args: {
   guideX: number;
   frameIndex?: number;
 }): CheckRow[] {
-  const { rows, yoloResults, ocrResults, frameIndex } = args;
+  const { rows, yoloResults, ocrResults, guideX, frameIndex } = args;
   const combinedResults: OCRResult[] = [...ocrResults];
 
   for (const detection of yoloResults) {
@@ -181,17 +189,18 @@ export function reconcileCheckRows(args: {
   }
 
   const rowLabels = new Set(rows.map((row) => normalizeCheckText(row.label)).filter(Boolean));
-  const labels: OCRItem[] = resolveLabelTextByPosition(
-    combinedResults
-      .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
-      .filter((item): item is OCRItem => Boolean(item.box && item.text))
-      .filter(({ result, text }) => isLabelDetection(result) || rowLabels.has(text)),
-    rowLabels
-  );
-  const tubes: OCRItem[] = combinedResults
+  const items: OCRItem[] = combinedResults
     .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
-    .filter((item): item is OCRItem => Boolean(item.box && item.text))
-    .filter(({ result }) => isTubeDetection(result));
+    .filter((item): item is OCRItem => Boolean(item.box && item.text));
+  // Position beats the detector class: anything straddling the center guide is a terminal number (label),
+  // left of the guide is a LEFT tube candidate, right of it a RIGHT tube candidate. A guide box is never
+  // reused as a tube.
+  const labels: OCRItem[] = resolveLabelTextByPosition(
+    items.filter((item) => isBoxOnGuide(item.box, guideX) || isLabelDetection(item.result) || rowLabels.has(item.text)),
+    rowLabels,
+    guideX
+  );
+  const tubes: OCRItem[] = items.filter((item) => isTubeDetection(item.result) && !isBoxOnGuide(item.box, guideX));
 
   const nextRows = rows.map((row): CheckRow => ({ ...row }));
   for (const label of labels) {

@@ -64,8 +64,9 @@ test('"20" is not changed', () => {
   assert.equal(byLabel(next, "2").label_status, "OK");
 });
 
-test('a tube OCR "0" is never used (tube class is not a label candidate)', () => {
-  const next = run(ROWS_123(), [{ text: "0", label: "tube", role: "tube", confidence: 0.9, bbox: [0.5, 0.1, 0.05, 0.05] }, labelAt("2", 0.2), labelAt("3", 0.3)]);
+test('a tube OCR "0" is never used (a tube-class box off the guide is not a label candidate)', () => {
+  // (a tube-class box that straddles the center guide is treated as a terminal number -- see guideLabel.test.ts)
+  const next = run(ROWS_123(), [{ text: "0", label: "tube", role: "tube", confidence: 0.9, bbox: [0.1, 0.1, 0.2, 0.05] }, labelAt("2", 0.2), labelAt("3", 0.3)]);
   assert.equal(byLabel(next, "1").label_status, undefined);
 });
 
