@@ -30,6 +30,16 @@ const EQUIVALENT: Array<[string, string]> = [
   ["L", "1"],
   ["12", "l2"],
   ["A1", "Al"],
+  // capital "I" is the most common real-world misread of "1" (measured on device OCR logs)
+  ["1", "I"],
+  ["I", "1"],
+  ["l", "I"],
+  ["L", "I"],
+  ["I", "L"],
+  ["1VTN", "IVTN"],
+  ["1CA", "ICA"],
+  ["1KT", "IKT"],
+  ["1L", "IL"],
 ];
 
 for (const [expected, ocr] of EQUIVALENT) {
@@ -49,16 +59,28 @@ test("ordinary matches still work (both sides, O/0 equivalence kept)", () => {
 });
 
 test("unrelated strings do not match", () => {
-  for (const [expected, ocr] of [["ABC", "ABD"], ["1", "7"], ["12", "13"], ["A1", "B1"], ["L", "2"]]) {
+  for (const [expected, ocr] of [["ABC", "ABD"], ["1", "7"], ["12", "13"], ["A1", "B1"], ["A1", "A2"], ["L", "2"], ["I", "2"], ["1VTN", "IVTM"]]) {
     assert.notEqual(leftOnly(expected, ocr), "OK", `left ${expected}/${ocr}`);
     assert.notEqual(rightOnly(expected, ocr), "OK", `right ${expected}/${ocr}`);
   }
 });
 
-test('only 1 and l/L are unified: "I" (capital i) and "|" are NOT treated as 1', () => {
-  assert.notEqual(leftOnly("1", "I"), "OK");
+test('"|" is NOT treated as 1 (only 1 / l / L / I are unified)', () => {
   assert.notEqual(leftOnly("1", "|"), "OK");
-  assert.notEqual(rightOnly("I", "1"), "OK");
+  assert.notEqual(rightOnly("1", "|"), "OK");
+  assert.notEqual(leftOnly("|", "1"), "OK");
+  assert.notEqual(rightOnly("|", "1"), "OK");
+  assert.notEqual(leftOnly("A1", "A|"), "OK");
+});
+
+test("label matching does not get I -> 1 (label 1 does not match OCR label I)", () => {
+  const row = makeRow("A1", "1", "A1");
+  const next = run(row, [labelOcr("I"), leftTubeOcr("A1"), rightTubeOcr("A1")]);
+  assert.equal(next.label_status, undefined);
+  assert.equal(next.completed, undefined);
+  // exact label still anchors the row; tubes read with I match through the tube key
+  const anchored = run(row, [labelOcr("1"), leftTubeOcr("AI"), rightTubeOcr("Al")]);
+  assert.equal(anchored.completed, true);
 });
 
 test("label matching is not affected (label 1 does not match OCR label l)", () => {
@@ -73,11 +95,14 @@ test("label matching is not affected (label 1 does not match OCR label l)", () =
   assert.equal(anchored.completed, true);
 });
 
-test("normalizeCheckText is unchanged (no 1/l folding) while the tube key folds it", () => {
+test("normalizeCheckText is unchanged (no 1/l/I folding) while the tube key folds it", () => {
   assert.equal(normalizeCheckText(" l o "), "L0");
   assert.equal(normalizeCheckText("1"), "1");
+  assert.equal(normalizeCheckText("I"), "I");
   assert.equal(normalizeTubeCheckText(" l o "), "10");
   assert.equal(normalizeTubeCheckText("L1"), "11");
+  assert.equal(normalizeTubeCheckText("IVTN"), "1VTN");
+  assert.equal(normalizeTubeCheckText("|"), "|");
 });
 
 test("display values are not rewritten", () => {
