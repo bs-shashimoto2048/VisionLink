@@ -122,6 +122,7 @@ VisionLink/
 - 各行は回答（検査テーブルの期待値）を1つ持ち（CSV では `tube_l==tube_r`）、左右 tube とも同じ回答と照合。
 - 片側ラッチ：一致した側を OK として保持（以降別文字を読んでも OK）。一致側セルの文字色を緑(`#16a34a`)に。
 - 照合の正規化（`normalizeCheckText`）：大文字化・空白除去に加え **O と 0 を等価扱い**（両辺）。表示値は OCR original のまま。
+- 左右 tube の照合のみ、さらに `normalizeTubeCheckText`（`normalizeCheckText` ＋ **数字 1 と英字 l/L を等価扱い**、両辺）で比較する。Label / nmb の照合・検出分類は `normalizeCheckText` のまま（1/l は同一視しない）。`I`（大文字アイ）や `|` は同一視しない。
 - 両側 OK で行を消込完了（ALL）。完了時は該当行へ自動スクロール/ハイライト。リセットは行/テーブル読み直し時のみ。
 - nmb は消込対象外（左右 tube のみ）。検査開始はテーブル読込後のみ有効。
 
