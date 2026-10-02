@@ -21,7 +21,7 @@ function getOcrText(result: OCRResult | undefined): string {
 }
 
 type Box = { x: number; y: number; width: number; height: number };
-type OCRItem = { result: OCRResult; box: Box; text: string };
+export type OCRItem = { result: OCRResult; box: Box; text: string };
 type RowBand = { top: number; bottom: number };
 
 function getBox(result: OCRResult | undefined): Box | null {
@@ -131,6 +131,33 @@ function findMatchingTube(
   return candidates.find((candidate) => normalizeTubeCheckText(candidate.text) === expectedKey);
 }
 
+// PaddleOCR sometimes reads the terminal number "1" as a lone "0". A lone "0" is never a real terminal
+// number, so a nmb/label candidate whose text is "0" is read as "1" -- but ONLY when the position proves it:
+// it sits above a "2" candidate (centerY(0) < centerY(2)), the table has rows "1" and "2", and no proper "1"
+// was read in the same frame. Only the label comparison key is changed: the raw OCR result (and whatever is
+// displayed / logged) keeps "0", tube OCR is never touched, and "10" / "20" etc. are never altered.
+export function resolveLabelTextByPosition(items: OCRItem[], rowLabels: Set<string>): OCRItem[] {
+  if (!rowLabels.has("1") || !rowLabels.has("2")) return items;
+  if (items.some((item) => item.text === "1")) return items; // a proper "1" wins; no double matching
+  const isLabelItem = (item: OCRItem) => isLabelDetection(item.result);
+  const twos = items.filter((item) => item.text === "2" && isLabelItem(item));
+  const zeros = items.filter((item) => item.text === "0" && isLabelItem(item));
+  if (!twos.length || !zeros.length) return items;
+
+  // The "1" is the zero that sits directly above a "2": take the zero closest above any "2".
+  let chosenY: number | null = null;
+  for (const zero of zeros) {
+    const zy = centerY(zero.box);
+    if (twos.some((two) => zy < centerY(two.box)) && (chosenY === null || zy > chosenY)) chosenY = zy;
+  }
+  if (chosenY === null) return items;
+  const target = chosenY;
+  // duplicate reads of the same physical label (same position) are resolved together
+  return items.map((item) =>
+    zeros.includes(item) && Math.abs(centerY(item.box) - target) < 0.0001 ? { ...item, text: "1" } : item
+  );
+}
+
 export function reconcileCheckRows(args: {
   rows: CheckRow[];
   yoloResults: Array<{ label?: string | null; class_name?: string | null; role?: string | null; name?: string | null; side?: string | null; x?: number; y?: number; width?: number; height?: number; ocr_text?: string | null }>;
@@ -154,10 +181,13 @@ export function reconcileCheckRows(args: {
   }
 
   const rowLabels = new Set(rows.map((row) => normalizeCheckText(row.label)).filter(Boolean));
-  const labels: OCRItem[] = combinedResults
-    .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
-    .filter((item): item is OCRItem => Boolean(item.box && item.text))
-    .filter(({ result, text }) => isLabelDetection(result) || rowLabels.has(text));
+  const labels: OCRItem[] = resolveLabelTextByPosition(
+    combinedResults
+      .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
+      .filter((item): item is OCRItem => Boolean(item.box && item.text))
+      .filter(({ result, text }) => isLabelDetection(result) || rowLabels.has(text)),
+    rowLabels
+  );
   const tubes: OCRItem[] = combinedResults
     .map((result) => ({ result, box: getBox(result), text: getOcrText(result) }))
     .filter((item): item is OCRItem => Boolean(item.box && item.text))
